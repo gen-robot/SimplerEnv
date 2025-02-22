@@ -8,42 +8,12 @@ from PIL import Image
 from torchvision import transforms
 
 from third_party.rdt.constants import RDT_CONFIG_DIR
-from third_party.rdt.configs.state_vec import STATE_VEC_IDX_MAPPING
+from third_party.rdt.configs import ROBOT_INDICES, ROBOT_CAMERA_NAMES
 from third_party.rdt.models.multimodal_encoder.siglip_encoder import SiglipVisionTower
 from third_party.rdt.models.multimodal_encoder.t5_encoder import T5Embedder
 from third_party.rdt.models.rdt_runner import RDTRunner
 
-
-# The indices that the raw vector should be mapped to in the unified action vector
-AGILEX_STATE_INDICES = [
-    STATE_VEC_IDX_MAPPING[f"left_arm_joint_{i}_pos"] for i in range(6)
-] + [
-    STATE_VEC_IDX_MAPPING["left_gripper_open"]
-] + [
-    STATE_VEC_IDX_MAPPING[f"right_arm_joint_{i}_pos"] for i in range(6)
-] + [
-    STATE_VEC_IDX_MAPPING[f"right_gripper_open"]
-]
-
-AGILEX_EEF_INDICES = [
-    STATE_VEC_IDX_MAPPING[f"left_eef_pos_{i}"] for i in ['x', 'y', 'z']
-] + [
-    STATE_VEC_IDX_MAPPING[f"left_eef_angle_{i}"] for i in range(6)
-] + [
-    STATE_VEC_IDX_MAPPING[f"right_eef_pos_{i}"] for i in ['x', 'y', 'z']
-] + [
-    STATE_VEC_IDX_MAPPING[f"right_eef_angle_{i}"] for i in range(6)
-]
-
-AGILEX_QVEL_INDICES = [
-    STATE_VEC_IDX_MAPPING[f"left_arm_joint_{i}_vel"] for i in range(6)
-] + [
-    STATE_VEC_IDX_MAPPING["left_gripper_open_vel"]
-] + [
-    STATE_VEC_IDX_MAPPING[f"right_arm_joint_{i}_vel"] for i in range(6)
-] + [
-    STATE_VEC_IDX_MAPPING["right_gripper_open_vel"]
-]
+from simpler_env.policies.rdt import *
 
 
 # Create the RDT model
@@ -73,7 +43,7 @@ class RoboticDiffusionTransformerModel(object):
         pretrained=None,
         lora_adapter=None,
         pretrained_vision_encoder_name_or_path=None,
-        robot_name="rdt",
+        robot_name="mobile_aloha_v2",
         enable_eef_obs=False,
         enable_qvel_obs=False,
     ):
@@ -94,7 +64,15 @@ class RoboticDiffusionTransformerModel(object):
             assert robot_name in self.gs_dict, f"Robot name {robot_name} not found in gripper scale dict."
             self.gripper_qpos_scale = self.gs_dict[robot_name]['qpos']
             self.gripper_action_scale = self.gs_dict[robot_name]['action']
-        
+
+        if robot_name not in ROBOT_INDICES:
+            raise ValueError(f"Unsupported robot name: {robot_name}")
+
+        self.robot_name  = robot_name
+        self.state_indices = ROBOT_INDICES[robot_name]["state_indices"]
+        self.eef_indices = ROBOT_INDICES[robot_name]["eef_indices"]
+        self.qvel_indices = ROBOT_INDICES[robot_name]["qvel_indices"]
+
         self.reset()
 
     def get_policy(self, pretrained, lora_adapter=None):
@@ -215,32 +193,40 @@ class RoboticDiffusionTransformerModel(object):
         Returns:
             state (torch.Tensor): The formatted vector for RDT ([B, N, 128]). 
         """
-        # Rescale the gripper to the range of [0, 1]
-        joints = joints / torch.tensor(
-            [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale[0], 
-               1, 1, 1, 1, 1, 1, self.gripper_qpos_scale[1]]]],
-            device=joints.device, dtype=joints.dtype
-        )
-        
+        # Rescale the gripper to the range of [0, 1] for  all robots, and other dim should not be rescale
+        if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2']:
+            joints = joints / torch.tensor(
+                [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale[0], 
+                1, 1, 1, 1, 1, 1, self.gripper_qpos_scale[1]]]],
+                device=joints.device, dtype=joints.dtype
+            )
+        elif self.robot_name in ['google_robot', 'widowx_bridge']:
+            joints = joints / torch.tensor(
+                [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale]]],
+                device=joints.device, dtype=joints.dtype
+            )
+        else:
+            raise ValueError("robot_name_error")
+
         B, N, _ = joints.shape
         state = torch.zeros(
             (B, N, self.args["model"]["state_token_dim"]), 
             device=joints.device, dtype=joints.dtype
         )
         # Fill into the unified state vector
-        state[:, :, AGILEX_STATE_INDICES] = joints
+        state[:, :, ROBOT_INDICES[self.robot_name]["state_indices"]] = joints
         # Assemble the mask indicating each dimension's availability 
         state_elem_mask = torch.zeros(
             (B, self.args["model"]["state_token_dim"]),
             device=joints.device, dtype=joints.dtype
         )
-        state_elem_mask[:, AGILEX_STATE_INDICES] = 1
+        state_elem_mask[:, ROBOT_INDICES[self.robot_name]["state_indices"]] = 1
         if eef_pos_rot6d is not None and self.enable_eef_obs:
-            state[:, :, AGILEX_EEF_INDICES] = eef_pos_rot6d
-            state_elem_mask[:, AGILEX_EEF_INDICES] = 1
+            state[:, :, ROBOT_INDICES[self.robot_name]["eef_indices"]] = eef_pos_rot6d
+            state_elem_mask[:, ROBOT_INDICES[self.robot_name]["eef_indices"]] = 1
         if qvel is not None and self.enable_qvel_obs:
-            state[:, :, AGILEX_QVEL_INDICES] = qvel
-            state_elem_mask[:, AGILEX_QVEL_INDICES] = 1
+            state[:, :, ROBOT_INDICES[self.robot_name]["qvel_indices"]] = qvel
+            state_elem_mask[:, ROBOT_INDICES[self.robot_name]["qvel_indices"]] = 1
         return state, state_elem_mask
 
     def _unformat_action_to_joint(self, action, unnorm_output=True):
@@ -255,18 +241,26 @@ class RoboticDiffusionTransformerModel(object):
             joints (torch.Tensor): The unformatted robot joint action. 
                 qpos ([B, N, 14]).
         """
-        action_indices = AGILEX_STATE_INDICES
+        action_indices = ROBOT_INDICES[self.robot_name]["state_indices"] # AGILEX_STATE_INDICES
         joints = action[:, :, action_indices]
         
         if unnorm_output:
             # Rescale the gripper back to the action range
             # Note that the action range and proprioception range are different
             # for Mobile ALOHA robot
-            joints = joints * torch.tensor(
-                [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale[0], 
-                1, 1, 1, 1, 1, 1, self.gripper_action_scale[1]]]],
-                device=joints.device, dtype=joints.dtype
-            )
+            if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2']:
+                joints = joints * torch.tensor(
+                    [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale[0], 
+                    1, 1, 1, 1, 1, 1, self.gripper_action_scale[1]]]],
+                    device=joints.device, dtype=joints.dtype
+                )
+            elif self.robot_name in ['google_robot', 'widowx_bridge']:
+                joints = joints / torch.tensor(
+                    [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale]]],
+                    device=joints.device, dtype=joints.dtype
+                )
+            else:
+                raise ValueError("robot_name_error")
         
         return joints
 
@@ -337,9 +331,9 @@ class RoboticDiffusionTransformerModel(object):
         image_embeds = image_embeds.reshape(-1, self.vision_model.hidden_size).unsqueeze(0)
 
         # Prepare the proprioception states and the control frequency
-        joints = proprio.to(device).unsqueeze(0)   # (1, 1, 14)
+        joints = proprio.to(device).unsqueeze(0)   # (1, 1, N) N should be 14 for agilex and 7 for widowx
         eef_pos_rot6d = eef_pos_rot6d.to(device).unsqueeze(0) if eef_pos_rot6d is not None else None # (1, 1, 18)
-        proprio_qvel = proprio_qvel.to(device).unsqueeze(0) if proprio_qvel is not None else None # (1, 1, 14)
+        proprio_qvel = proprio_qvel.to(device).unsqueeze(0) if proprio_qvel is not None else None # (1, 1, N) N should be 14 for agilex and 7 for widowx
 
         states, state_elem_mask = self._format_joint_to_state(
             joints, eef_pos_rot6d, proprio_qvel)    # (1, 1, 128), (1, 128)

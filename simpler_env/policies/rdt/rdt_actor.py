@@ -12,18 +12,13 @@ from PIL import Image as PImage
 
 from third_party.rdt.constants import *
 from third_party.rdt.models.multimodal_encoder.t5_encoder import T5Embedder
+from third_party.rdt.configs import ROBOT_INDICES, ROBOT_CAMERA_NAMES
 from simpler_env.policies.rdt.rdt_aloha_model import (
     create_model as create_RDT_model, 
     RoboticDiffusionTransformerModel
 )
 
 # TODO: currently, it does not support batched execution.
-
-ALOHA_CAMERA_NAMES = [
-    "cam_high", 
-    "cam_right_wrist",
-    "cam_left_wrist",
-]
 
 def dict_apply(d, func):
     """Applies `func` to all tensor leaves in a nested dictionary `d`."""
@@ -48,7 +43,9 @@ class RDTActor:
                  dtype: torch.dtype=torch.bfloat16,
                  pretrained_checkpoint: str=None,
                  lora_adapter: str=None,
-                 robot_name: str="rdt"):
+                 robot_name: str="mobile_aloha_v2",
+                 *args,
+                 **kwargs):
         self.ctrl_freq = ctrl_freq
         self.device = device
         self.dtype = dtype
@@ -61,8 +58,11 @@ class RDTActor:
         self.obs_window = None
         self.text_embedding = None
 
-        if camera_names is None:
-            self.camera_names = deepcopy(ALOHA_CAMERA_NAMES)
+        # if camera_names is None:
+        #     self.camera_names = deepcopy(ROBOT_CAMERA_NAMES[robot_name]) # to make sure we have 3 pictures(background) 
+        if robot_name not in ROBOT_CAMERA_NAMES:
+            raise ValueError(f"Unsupported robot name: {robot_name}")
+        self.camera_names = deepcopy(ROBOT_CAMERA_NAMES[robot_name]) # to make sure we have 3 pictures(background)
 
         with open(self.model_cfg_path, "r") as fp:
             self.config = yaml.safe_load(fp)
@@ -184,9 +184,11 @@ class RDTActor:
         images = [to_pil(arr) if arr is not None else None
                   for arr in image_arrs]
         
-        # get last qpos in shape [14, ] and unsqueeze to [1, 14]
+        # get last qpos in shape [N, ] and unsqueeze to [1, N], N should be 14 for agilex, but 7 for widowx
         proprio = self.obs_window[-1]['qpos']
         proprio = proprio.unsqueeze(0)
+        print("---------------------")
+        print("observation proprio:",proprio)
 
         actions = self.rdt_policy.step(
             proprio=proprio,
@@ -205,6 +207,13 @@ class RDTActor:
             self.internal_t = 0
             self.last_instruction = instr
             self.text_embedding = self.encode_instruction(instr)
+
+            # save_path = os.path.join(f"{instr}.pt")
+            # torch.save({
+            #         "instruction": instr,
+            #         "embeddings": self.text_embedding
+            #     }, save_path
+            # )
 
         self.update_obs_window(
             dict_apply(obs, lambda x: torch.squeeze(x, dim=0)))
