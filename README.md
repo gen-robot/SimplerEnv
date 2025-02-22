@@ -77,9 +77,13 @@ Create a conda/mamba environment and install dependencies:
 ```bash
 cd path/to/SimplerEnv
 conda create -n simpler_env python=3.10.12
-conda activate ms3-octo
-pip install --upgrade git+https://github.com/haosulab/ManiSkill.git
-pip install torch==2.3.1 tyro==0.8.5
+conda activate simpler_env
+cd Maniskill
+pip install -e .
+cd ..
+# pip install --upgrade git+https://github.com/haosulab/ManiSkill.git
+pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1  tyro==0.8.5 --index-url https://download.pytorch.org/whl/cu121
+# pip install torch==2.3.1 tyro==0.8.5
 pip install -e .
 ```
 
@@ -185,12 +189,15 @@ If you are using CUDA 12, then to use GPU for Octo inference, you need CUDA vers
 
 ### Evaluating Octo and RT-1
 
-The new ManiSkill3 evaluation script is in `simpler_env/real2sim_eval_maniskill3.py`. See the script for more details. An example usage is shown below:
+The new ManiSkill3 evaluation script is in `simpler_env/real2sim_eval_maniskill3.py`. See the script for more details.`[Note: we don't use the script 'main_inference.py'] `An example usage is shown below:
 ```
 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/real2sim_eval_maniskill3.py \
   --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
 ```
 to evaluate 192 episodes of octo-small model on PutEggplantInBasketScene-v1 environment with 64 parallel environments. You can use more environments if you have enough memory. Note that this is not deterministic and results may vary between runs.
+
+
+`There are some bugs:  model.reset(instruction) should be model.reset(instruction[0]); action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1), dim should be 0; raw_action, action = model.step(images[-1], instruction), instruction should be instruction[0], and images[-1] should be images[-1].numpy().squeeze()`
 
 ## Troubleshooting
 
