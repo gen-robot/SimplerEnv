@@ -4,3 +4,6 @@
 [submodule "third_party/rdt"]
 	path = third_party/rdt
 	url = git@github.com:gen-robot/RoboticsDiffusionTransformer.git
+[submodule "ManiSkill"]
+	path = ManiSkill
+	url = git@github.com:gen-robot/ManiSkill.git
