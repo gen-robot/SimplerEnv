@@ -11,7 +11,8 @@ import tree
 from mani_skill.utils import common
 from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
-signal.signal(signal.SIGINT, signal.SIG_DFL) # allow ctrl+c
+
+signal.signal(signal.SIGINT, signal.SIG_DFL)  # allow ctrl+c
 from simpler_env.utils.env.observation_utils import get_image_from_maniskill3_obs_dict
 
 import gymnasium as gym
@@ -22,6 +23,7 @@ import tyro
 from dataclasses import dataclass
 from pathlib import Path
 
+
 @dataclass
 class Args:
     """
@@ -30,7 +32,6 @@ class Args:
     XLA_PYTHON_CLIENT_PREALLOCATE=false python real2sim_eval_maniskill3.py \
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
-
 
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1"
     """The environment ID of the task you want to simulate. Can be one of
@@ -69,11 +70,11 @@ class Args:
 
     debug: bool = False
 
+
 def main():
     args = tyro.cli(Args)
     if args.seed is not None:
         np.random.seed(args.seed)
-
 
     sensor_configs = dict()
     sensor_configs["shader_pack"] = args.shader
@@ -86,33 +87,34 @@ def main():
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
     # Setup up the policy inference model
-    model = None
-    try:
+    print(f"model is {args.model}")
+    policy_setup = "widowx_bridge"
 
-        policy_setup = "widowx_bridge"
-        if args.model is None:
-            pass
-        else:
-            from simpler_env.policies.rt1.rt1_model import RT1Inference
-            from simpler_env.policies.octo.octo_model import OctoInference
-            if args.model == "octo-base" or args.model == "octo-small":
-                model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
-            elif args.model == "rt-1x":
-                ckpt_path=args.ckpt_path
-                model = RT1Inference(
-                    saved_model_path=ckpt_path,
-                    policy_setup=policy_setup,
-                    action_scale=1,
-                )
-            elif args.model is not None:
-                raise ValueError(f"Model {args.model} does not exist / is not supported.")
-    except:
-        if args.model is not None:
-            raise Exception("SIMPLER Env Policy Inference is not installed")
+    if args.model == "octo-base" or args.model == "octo-small":
+        from simpler_env.policies.octo.octo_model import OctoInference
+        model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
+    elif args.model == "rt-1x":
+        from simpler_env.policies.rt1.rt1_model import RT1Inference
+        model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
+    elif args.model == "openvla":
+        from simpler_env.policies.openvla.openvla_model import OpenVLAInference
+        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
+    elif args.model == "cogact":
+        from simpler_env.policies.sim_cogact import CogACTInference
+        model = CogACTInference(
+            saved_model_path=args.ckpt_path,  # e.g., CogACT/CogACT-Base
+            policy_setup=policy_setup,
+            action_scale=1.0,
+            action_model_type='DiT-L',
+            cfg_scale=1.5  # cfg from 1.5 to 7 also performs well
+        )
+    elif args.model == "spatialvla":
+        from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
+        model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
+    else:
+        model = None
 
     model_name = args.model if args.model is not None else "random"
-    if model_name == "random":
-        print("Using random actions.")
     exp_dir = os.path.join(args.record_dir, f"real2sim_eval/{model_name}_{args.env_id}")
     Path(exp_dir).mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +126,7 @@ def main():
 
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
     total_start_time = time.time()
-    
+
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
         obs, _ = env.reset(seed=seed, options={"episode_id": torch.tensor([seed + i for i in range(args.num_envs)])})
@@ -139,7 +141,18 @@ def main():
         while not (predicted_terminated or truncated):
             if model is not None:
                 start_time = time.time()
-                raw_action, action = model.step(images[-1], instruction)
+
+                # my change
+                image = images[-1].to(torch.uint8).cpu().numpy()
+                assert len(image.shape) == 4
+                assert image.shape[0] == 1
+                image = image[0]
+
+                raw_action, action = model.step(image, instruction)
+
+                # my change
+                action = {k: torch.tensor(v.reshape(1, -1)) for k, v in action.items()}
+
                 action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
                 timers["inference"] += time.time() - start_time
             else:
@@ -148,27 +161,31 @@ def main():
             if elapsed_steps > 0:
                 if args.save_video and args.info_on_video:
                     for i in range(len(images[-1])):
-                        images[-1][i] = visualization.put_info_on_image(images[-1][i], tree.map_structure(lambda x: x[i], info))
-            
+                        images[-1][i] = visualization.put_info_on_image(images[-1][i],
+                                                                        tree.map_structure(lambda x: x[i], info))
+
             start_time = time.time()
             obs, reward, terminated, truncated, info = env.step(action)
             timers["env.step"] += time.time() - start_time
             elapsed_steps += 1
             info = common.to_numpy(info)
-            
-            truncated = bool(truncated.any()) # note that all envs truncate and terminate at the same time.
+
+            truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
             images.append(get_image_from_maniskill3_obs_dict(env, obs))
 
         for k, v in info.items():
             eval_metrics[k].append(v.flatten())
         if args.save_video:
             for i in range(len(images[-1])):
-                images_to_video([img[i].cpu().numpy() for img in images], exp_dir, f"{sim_backend}_eval_{seed + i}_success={info['success'][i].item()}", fps=10, verbose=True)
+                images_to_video([img[i].cpu().numpy() for img in images], exp_dir,
+                                f"{sim_backend}_eval_{seed + i}_success={info['success'][i].item()}", fps=10,
+                                verbose=True)
         eps_count += args.num_envs
         if args.num_envs == 1:
             print(f"Evaluated episode {eps_count}. Seed {seed}. Results after {eps_count} episodes:")
         else:
-            print(f"Evaluated {args.num_envs} episodes, seeds {seed} to {eps_count}. Results after {eps_count} episodes:")
+            print(
+                f"Evaluated {args.num_envs} episodes, seeds {seed} to {eps_count}. Results after {eps_count} episodes:")
         for k, v in eval_metrics.items():
             print(f"{k}: {np.mean(v)}")
     # Print timing information
@@ -187,6 +204,7 @@ def main():
     with open(metrics_path, "w") as f:
         json.dump(mean_metrics, f, indent=4)
     print(f"Evaluation complete. Results saved to {exp_dir}. Metrics saved to {metrics_path}")
+
 
 if __name__ == "__main__":
     main()
