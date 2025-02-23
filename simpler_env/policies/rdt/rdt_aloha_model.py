@@ -202,7 +202,7 @@ class RoboticDiffusionTransformerModel(object):
             )
         elif self.robot_name in ['google_robot', 'widowx_bridge']:
             joints = joints / torch.tensor(
-                [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale]]],
+                [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale, self.gripper_qpos_scale]]],
                 device=joints.device, dtype=joints.dtype
             )
         else:
@@ -256,7 +256,7 @@ class RoboticDiffusionTransformerModel(object):
                 )
             elif self.robot_name in ['google_robot', 'widowx_bridge']:
                 joints = joints / torch.tensor(
-                    [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale]]],
+                    [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale, self.gripper_action_scale]]],
                     device=joints.device, dtype=joints.dtype
                 )
             else:

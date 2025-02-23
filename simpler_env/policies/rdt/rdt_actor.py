@@ -89,6 +89,8 @@ class RDTActor:
         self.action_buffer = None
         self.internal_t = 0
 
+        self.fk_pose = None
+
     def reset(self):
         self.obs_window = None
         self.text_embedding = None
@@ -188,7 +190,16 @@ class RDTActor:
         proprio = self.obs_window[-1]['qpos']
         proprio = proprio.unsqueeze(0)
         print("---------------------")
-        print("observation proprio:",proprio)
+        # print("observation proprio:",proprio)
+
+        from simpler_env.policies.rdt.rdt_model import transfer_qpos_2_ee_pose
+        from scipy.spatial.transform import Rotation as R
+        if self.fk_pose == None:
+            self.fk_pose = {}
+        obs_ee_pose = transfer_qpos_2_ee_pose(self.env, proprio[:,:6])
+        self.fk_pose["xyz"] = obs_ee_pose.p.squeeze().numpy()
+        self.fk_pose["euler_angle"] = R.from_quat(obs_ee_pose.q.squeeze()[[1,2,3,0]]).as_euler('xyz', degrees=True)
+        print("observation fk pose:", self.fk_pose)
 
         actions = self.rdt_policy.step(
             proprio=proprio,

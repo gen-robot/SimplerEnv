@@ -31,7 +31,7 @@ from mani_skill.agents.utils import (
     get_active_joint_indices,
     get_joints_by_names,
 )
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation as R
 
 # reset(), step(), visualize_epoch()
 class RDTInference(RDTActor):
@@ -75,10 +75,10 @@ class RDTInference(RDTActor):
                 }
             )
         # single arm in maniskill3
-        elif self.robot_name == 'widowx_bridge':
+        elif self.robot_name in ['widowx_bridge', 'google_robot']:
             self.obs_window.append(
                 {
-                    'qpos': obs['agent']['qpos'][:7], # TODO to modify as 8, using 2 fingers
+                    'qpos': obs['agent']['qpos'],
                     'images':
                         {
                             # maniskill should be image instead of sensor data
@@ -95,6 +95,35 @@ class RDTInference(RDTActor):
         self.action_buffer = None
         self.internal_t = 0
 
+    def _get_relative_rotation_axis_angle(self, euler_old, euler_new, seq='xyz'):
+        """
+        计算从 old 坐标系 旋转到 new 坐标系 的相对旋转，并转换为轴角表示。
+
+        参数:
+        euler_old: (3,) numpy 数组，旧坐标系相对于基坐标系的欧拉角 (单位: 弧度)
+        euler_new: (3,) numpy 数组，新坐标系相对于基坐标系的欧拉角 (单位: 弧度)
+        seq: 欧拉角顺序, 默认为 'xyz'
+
+        返回:
+        axis: (3,) numpy 数组, 旋转轴
+        angle: float, 旋转角度 (单位: 弧度)
+        """
+
+        # 计算旧坐标系和新坐标系相对于基坐标系的旋转矩阵
+        R_old = R.from_euler(seq, euler_old)  # 旧坐标系的旋转矩阵
+        R_new = R.from_euler(seq, euler_new)  # 新坐标系的旋转矩阵
+
+        # 计算相对旋转矩阵 R_rel = R_new * R_old^-1
+        R_rel = R_new * R_old.inv()  # 计算 old → new 的旋转
+
+        # 转换为轴角表示
+        rotvec = R_rel.as_rotvec()  # 旋转向量 (旋转轴 * 旋转角度)
+        angle = np.linalg.norm(rotvec)  # 旋转角度
+        axis = rotvec / angle if angle > 1e-6 else np.array([1, 0, 0])  # 归一化旋转轴
+
+        return axis, angle
+
+
     def step(
         self, observations: Dict, task_description: Optional[str] = None, *args, **kwargs
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
@@ -104,6 +133,9 @@ class RDTInference(RDTActor):
             task_description: Optional[str], task description; if different from previous task description, policy state is reset
         Output:
             action: dict; policy action output
+                gripper
+                world_vector
+                rot_axangle
         """
         text_embedding = None
         if self.text_embedding_path is not None:
@@ -111,26 +143,31 @@ class RDTInference(RDTActor):
         qpos_action = self.predict_action(observations, task_description,text_embedding)
  
         if self.robot_name in ["widowx_bridge",'google_robot']:
-
             ee_pose = transfer_qpos_2_ee_pose(self.env, qpos_action[0][:6]) # just first 6 joints
 
-            action = {}
-            action["gripper"] = np.array([qpos_action[0][6]])
-            action["world_vector"] = ee_pose.p.squeeze().numpy()
-            # 重排列 quat
-            action_euler = Rotation.from_quat(ee_pose.q.squeeze()[[1,2,3,0]]).as_euler('xyz', degrees=True)
+            raw_action = {}
+            raw_action["world_vector"] = ee_pose.p.squeeze().numpy()
+            raw_action["euler_angle"] = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]]).as_euler('xyz', degrees=True) 
 
-            action_rotation_delta = np.asarray(action_euler, dtype=np.float64)
-            roll, pitch, yaw = action_rotation_delta
-            action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
-            action_rotation_axangle = action_rotation_ax * action_rotation_angle
-            action["rot_axangle"] = action_rotation_axangle * self.action_scale
+            action = {}
+            action["world_vector"] = (raw_action["world_vector"] - self.fk_pose["xyz"]) * self.action_scale
+
+            # TODO to update
+            action["gripper"] = torch.tensor([(2*((qpos_action[0][6]+qpos_action[0][7])>1)-1)])*self.action_scale
+            action_rotation_ax, action_rotation_angle = self._get_relative_rotation_axis_angle(
+                                                    np.radians(self.fk_pose["euler_angle"]),
+                                                    np.radians(raw_action["euler_angle"])
+                                                    )
+            # print("rotation_ax", action_rotation_ax)
+            # print("rotation_angle", action_rotation_angle)
+            action["rot_axangle"] = action_rotation_ax * action_rotation_angle * self.action_scale
             action["terminate_episode"] = np.array([0.0])
 
         elif self.robot_name in ["mobile_aloha","mobile_aloha_v2"]:
-            action = qpos_action
+            raw_action = qpos_action
+            action = raw_action
 
-        return qpos_action, action
+        return raw_action, action
 
     def visualize_epoch(
             self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str
@@ -154,11 +191,11 @@ class RDTInference(RDTActor):
 
 def transfer_qpos_2_ee_pose(
     env, 
-    qpos : torch.Tensor,
+    qpos,
 ):
     """Transfer joint positions to ee pose."""
 
-    get_active_joint_indices(env.agent.robot, env.agent.arm_joint_names)
+    # get_active_joint_indices(env.agent.robot, env.agent.arm_joint_names) -> [0,1,2,3,4,5]
     kinematics = Kinematics(
         urdf_path=env.agent.urdf_path,
         end_link_name=env.agent.ee_link_name,
@@ -198,7 +235,7 @@ def transfer_qpos_2_ee_pose(
 
     '''
     qpos = qpos.squeeze()
-    qpos = torch.from_numpy(qpos)
+    qpos = torch.as_tensor(qpos)
     qpos_fk = torch.zeros(qpos.shape[0], env.agent.robot.max_dof, # 8
                         dtype=qpos.dtype, device=env.agent.robot.device)
     qpos_fk[:, get_active_joint_indices(env.agent.robot, env.agent.arm_joint_names)] = qpos

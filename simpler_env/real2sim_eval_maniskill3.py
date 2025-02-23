@@ -13,6 +13,8 @@ from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
 signal.signal(signal.SIGINT, signal.SIG_DFL) # allow ctrl+c
 from simpler_env.utils.env.observation_utils import get_image_from_maniskill3_obs_dict
+from simpler_env.policies.rdt.rdt_model import RDTInference
+from third_party.rdt.constants import *
 
 import gymnasium as gym
 import numpy as np
@@ -31,8 +33,7 @@ class Args:
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
 
-
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "StackGreenCubeOnYellowCubeBakedTexInScene-v1"
     """The environment ID of the task you want to simulate. Can be one of
     PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
 
@@ -49,7 +50,7 @@ class Args:
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
-    model: Optional[str] = None
+    model: Optional[str] = 'rdt' # 'rt-1x'   rdt   octo-base   octo-small
     """The model to evaluate on the given environment. Can be one of octo-base, octo-small, rt-1x. If not given, random actions are sampled."""
 
     ckpt_path: str = ""
@@ -81,28 +82,48 @@ def main():
         args.env_id,
         obs_mode="rgb+segmentation",
         num_envs=args.num_envs,
-        sensor_configs=sensor_configs
+        sensor_configs=sensor_configs,
+        control_mode = "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos" # In BaseBridgeEnv and WidowX250SBridgeDatasetFlatTable
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
-    # Setup up the policy inference model
-    model = None
-    try:
+    verbose = True
+    if verbose:
+        print("---------------------------------------------")
+        print("Observation space", env.observation_space)
+        print("\nAction space", env.action_space)
+        if env.unwrapped.agent is not None:
+            print("Control mode", env.unwrapped.control_mode)
+        print("Reward mode", env.unwrapped.reward_mode)
+        print("---------------------------------------------")
 
-        policy_setup = "widowx_bridge"
+    # Setup up the policy inference model
+    try:
+        policy_setup = "widowx_bridge" # google_robot, widowx_bridge, but simpler-in 
         if args.model is None:
             pass
         else:
             from simpler_env.policies.rt1.rt1_model import RT1Inference
-            from simpler_env.policies.octo.octo_model import OctoInference
+            # from simpler_env.policies.octo.octo_model import OctoInference
             if args.model == "octo-base" or args.model == "octo-small":
-                model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
+                pass
+                # model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
             elif args.model == "rt-1x":
-                ckpt_path=args.ckpt_path
+                # control mode: arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos
+                ckpt_path="checkpoints/rt_1_x_tf_trained_for_002272480_step" # args.ckpt_path
                 model = RT1Inference(
                     saved_model_path=ckpt_path,
                     policy_setup=policy_setup,
                     action_scale=1,
+                )
+            elif args.model == "rdt":
+                policy_setup = "widowx_bridge" # widowx_bridge
+                model = RDTInference(
+                    action_scale=1, 
+                    robot_name=policy_setup,
+                    dtype=torch.bfloat16, 
+                    action_horizon=1,
+                    pretrained_checkpoint=RDT1B_PATH,
                 )
             elif args.model is not None:
                 raise ValueError(f"Model {args.model} does not exist / is not supported.")
@@ -113,7 +134,9 @@ def main():
     model_name = args.model if args.model is not None else "random"
     if model_name == "random":
         print("Using random actions.")
-    exp_dir = os.path.join(args.record_dir, f"real2sim_eval/{model_name}_{args.env_id}")
+
+    timestamp  = f"{time.strftime('%Y-%m-%d-%H-%M-%S')}"
+    exp_dir = os.path.join(args.record_dir, f"real2sim_eval/{model_name}_{args.env_id}",timestamp)
     Path(exp_dir).mkdir(parents=True, exist_ok=True)
 
     eval_metrics = defaultdict(list)
@@ -125,13 +148,14 @@ def main():
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
     total_start_time = time.time()
     
+    print("max_num_episodes: ", args.num_episodes)
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
         obs, _ = env.reset(seed=seed, options={"episode_id": torch.tensor([seed + i for i in range(args.num_envs)])})
         instruction = env.unwrapped.get_language_instruction()
         print("instruction:", instruction[0])
         if model is not None:
-            model.reset(instruction)
+            model.reset(instruction[0])
         images = []
         predicted_terminated, truncated = False, False
         images.append(get_image_from_maniskill3_obs_dict(env, obs))
@@ -139,8 +163,23 @@ def main():
         while not (predicted_terminated or truncated):
             if model is not None:
                 start_time = time.time()
-                raw_action, action = model.step(images[-1], instruction)
-                action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
+
+                if not args.model == 'rdt':
+                    raw_action, action = model.step(images[-1].numpy().squeeze(), instruction[0])
+                    import pdb; pdb.set_trace()
+                    action = torch.cat([torch.as_tensor(action["world_vector"]), 
+                                        torch.as_tensor(action["rot_axangle"]), 
+                                        torch.as_tensor(action["gripper"])], dim=0)
+                else:
+                    model.get_env(env)
+                    # x -> front 
+                    # y -> left
+                    # z -> up
+                    raw_action, action = model.step(obs, instruction[0])
+                    # x, y, z, rot_1, rot_2, rot_3, gripper -> 7 dimension 
+                    action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
+                                        torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32)
+
                 timers["inference"] += time.time() - start_time
             else:
                 action = env.action_space.sample()
@@ -151,6 +190,7 @@ def main():
                         images[-1][i] = visualization.put_info_on_image(images[-1][i], tree.map_structure(lambda x: x[i], info))
             
             start_time = time.time()
+            print("step:", elapsed_steps, "    ", "delta_action_pose:", action)
             obs, reward, terminated, truncated, info = env.step(action)
             timers["env.step"] += time.time() - start_time
             elapsed_steps += 1
