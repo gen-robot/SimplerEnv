@@ -601,19 +601,19 @@ def finetune(cfg: FinetuneConfig) -> None:
         vla.print_trainable_parameters()
 
     # Load reference model(OpenVLA-SFT)
-    vla_ref = AutoModelForVision2Seq.from_pretrained(
-        cfg.vla_path,
-        torch_dtype=torch.bfloat16,
-        quantization_config=quantization_config,
-        low_cpu_mem_usage=True,
-        trust_remote_code=True,
-        cache_dir=None
-    )
-    vla_ref = vla_ref.to(device_id)
+    # vla_ref = AutoModelForVision2Seq.from_pretrained(
+    #     cfg.vla_path,
+    #     torch_dtype=torch.bfloat16,
+    #     quantization_config=quantization_config,
+    #     low_cpu_mem_usage=True,
+    #     trust_remote_code=True,
+    #     cache_dir=None
+    # )
+    # vla_ref = vla_ref.to(device_id)
     # Wrap VLA in PyTorch DDP Wrapper for Multi-GPU Training
 
     vla = DDP(vla, device_ids=[device_id], find_unused_parameters=True, gradient_as_bucket_view=True)
-    vla_ref = DDP(vla_ref, device_ids=[device_id], find_unused_parameters=True, gradient_as_bucket_view=True)
+    # vla_ref = DDP(vla_ref, device_ids=[device_id], find_unused_parameters=True, gradient_as_bucket_view=True)
 
     # Create Optimizer =>> note that we default to a simple constant learning rate!
     trainable_params = [param for param in vla.parameters() if param.requires_grad]
@@ -782,7 +782,7 @@ def finetune(cfg: FinetuneConfig) -> None:
 
                             with torch.no_grad():
                                 # Calculate chosen_reference likelihood
-                                output_chosen_ref: CausalLMOutputWithPast = vla_ref(
+                                output_chosen_ref: CausalLMOutputWithPast = vla(
                                     input_ids=data_chosen["input_ids"].to(device_id),
                                     attention_mask=data_chosen["attention_mask"].to(device_id),
                                     pixel_values=data_chosen["pixel_values"].to(torch.bfloat16).to(device_id),
@@ -808,7 +808,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                                     label_pad_token_id=-100,
                                 )
                                 # Calculate rejected_reference likelihood
-                                output_rejected_ref: CausalLMOutputWithPast = vla_ref(
+                                output_rejected_ref: CausalLMOutputWithPast = vla(
                                     input_ids=data_rejected["input_ids"].to(device_id),
                                     attention_mask=data_rejected["attention_mask"].to(device_id),
                                     pixel_values=data_rejected["pixel_values"].to(torch.bfloat16).to(device_id),

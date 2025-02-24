@@ -82,11 +82,11 @@ CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-mod
 ```
 
 ```bash
-torchrun --standalone --nnodes=1 --nproc-per-node 2 simpler_env/runner/finetune.py \
+torchrun --standalone --nnodes=1 --nproc-per-node 2 simpler_env/runner/finetune_grape.py \
   --vla_path "openvla/openvla-7b" \
-  --dataset_name "rlds_np_rollout" \
-  --chosen_traj_dir "results/put carrot on plate" \
-  --rejected_traj_dir "results/put carrot on plate" \
+  --dataset_name "put carrot on plate" \
+  --chosen_traj_dir "results" \
+  --rejected_traj_dir "results" \
   --run_root_dir "results/grape/root" \
   --adapter_tmp_dir "results/grape/adapter" \
   --lora_rank 32 \
