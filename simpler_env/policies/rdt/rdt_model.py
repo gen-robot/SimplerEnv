@@ -140,7 +140,7 @@ class RDTInference(RDTActor):
         text_embedding = None
         if self.text_embedding_path is not None:
             text_embedding = torch.load(self.text_embedding_path)["embeddings"]
-        qpos_action = self.predict_action(observations, task_description,text_embedding)
+        qpos_action = self.predict_action(observations, task_description, text_embedding)
  
         if self.robot_name in ["widowx_bridge",'google_robot']:
             ee_pose = transfer_qpos_2_ee_pose(self.env, qpos_action[0][:6]) # just first 6 joints

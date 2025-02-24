@@ -33,7 +33,7 @@ class Args:
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
 
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "StackGreenCubeOnYellowCubeBakedTexInScene-v1"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1" 
     """The environment ID of the task you want to simulate. Can be one of
     PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
 
@@ -50,11 +50,11 @@ class Args:
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
-    model: Optional[str] = 'rdt' # 'rt-1x'   rdt   octo-base   octo-small
+    model: Optional[str] = 'rt-1x' # 'rt-1x'   rdt   octo-base   octo-small
     """The model to evaluate on the given environment. Can be one of octo-base, octo-small, rt-1x. If not given, random actions are sampled."""
 
     ckpt_path: str = ""
-    """Checkpoint path for models. Only used for RT models"""
+    """Checkpoint path for models. Used for RT and RDT models"""
 
     seed: Annotated[int, tyro.conf.arg(aliases=["-s"])] = 0
     """Seed the model and environment. Default seed is 0"""
@@ -83,7 +83,7 @@ def main():
         obs_mode="rgb+segmentation",
         num_envs=args.num_envs,
         sensor_configs=sensor_configs,
-        control_mode = "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos" # In BaseBridgeEnv and WidowX250SBridgeDatasetFlatTable
+        control_mode = "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos", # In BaseBridgeEnv and WidowX250SBridgeDatasetFlatTable
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
@@ -103,13 +103,11 @@ def main():
         if args.model is None:
             pass
         else:
-            from simpler_env.policies.rt1.rt1_model import RT1Inference
-            # from simpler_env.policies.octo.octo_model import OctoInference
             if args.model == "octo-base" or args.model == "octo-small":
-                pass
-                # model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
+                from simpler_env.policies.octo.octo_model import OctoInference
+                model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
             elif args.model == "rt-1x":
-                # control mode: arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos
+                from simpler_env.policies.rt1.rt1_model import RT1Inference
                 ckpt_path="checkpoints/rt_1_x_tf_trained_for_002272480_step" # args.ckpt_path
                 model = RT1Inference(
                     saved_model_path=ckpt_path,
@@ -166,19 +164,17 @@ def main():
 
                 if not args.model == 'rdt':
                     raw_action, action = model.step(images[-1].numpy().squeeze(), instruction[0])
-                    import pdb; pdb.set_trace()
                     action = torch.cat([torch.as_tensor(action["world_vector"]), 
                                         torch.as_tensor(action["rot_axangle"]), 
                                         torch.as_tensor(action["gripper"])], dim=0)
                 else:
                     model.get_env(env)
-                    # x -> front 
-                    # y -> left
-                    # z -> up
                     raw_action, action = model.step(obs, instruction[0])
-                    # x, y, z, rot_1, rot_2, rot_3, gripper -> 7 dimension 
+                    # # x- > front, y -> left, z -> up, rot_1, rot_2, rot_3, gripper[-1 -> close, 1 -> open] -> 7 dimension 
                     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
                                         torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32)
+                    # action = torch.cat([torch.as_tensor([0,0,0]), torch.as_tensor([0,0,0]),
+                    #                     torch.as_tensor([0.5])], dim=0).to(dtype=torch.float32)
 
                 timers["inference"] += time.time() - start_time
             else:
