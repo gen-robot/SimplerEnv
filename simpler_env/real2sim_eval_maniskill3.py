@@ -17,7 +17,8 @@ from simpler_env.utils.env.observation_utils import get_image_from_maniskill3_ob
 
 import gymnasium as gym
 import numpy as np
-from mani_skill.envs.tasks.digital_twins.bridge_dataset_eval import *
+from sapien.core import Pose
+from transforms3d.euler import euler2quat
 from mani_skill.envs.sapien_env import BaseEnv
 import tyro
 from dataclasses import dataclass
@@ -27,7 +28,7 @@ from pathlib import Path
 @dataclass
 class Args:
     """
-    This is a script to evaluate policies on real2sim environments. Example command to run: 
+    This is a script to evaluate policies on real2sim environments. Example command to run:
 
     XLA_PYTHON_CLIENT_PREALLOCATE=false python real2sim_eval_maniskill3.py \
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
@@ -70,25 +71,38 @@ class Args:
 
     debug: bool = False
 
+def get_robot_control_mode(robot: str):
+    if "google_robot_static" in robot:
+        return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
+    elif "widowx" in robot:
+        return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
+    else:
+        raise NotImplementedError(f"Robot {robot} not supported")
+
 
 def main():
     args = tyro.cli(Args)
     if args.seed is not None:
         np.random.seed(args.seed)
 
-    sensor_configs = dict()
-    sensor_configs["shader_pack"] = args.shader
-    env: BaseEnv = gym.make(
-        args.env_id,
-        obs_mode="rgb+segmentation",
-        num_envs=args.num_envs,
-        sensor_configs=sensor_configs
-    )
-    sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
-
     # Setup up the policy inference model
     print(f"model is {args.model}")
     policy_setup = "widowx_bridge"
+
+    env: BaseEnv = gym.make(
+        args.env_id,
+        num_envs=args.num_envs,
+        obs_mode="rgb+segmentation",
+        control_mode=get_robot_control_mode(policy_setup),
+        # sim_backend="gpu",
+        sim_config={
+            "sim_freq": 500,
+            "control_freq": 5,
+        },
+        max_episode_steps=60,
+        sensor_configs={"shader_pack": args.shader},
+    )
+    sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
     if args.model == "octo-base" or args.model == "octo-small":
         from simpler_env.policies.octo.octo_model import OctoInference
@@ -129,7 +143,17 @@ def main():
 
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
-        obs, _ = env.reset(seed=seed, options={"episode_id": torch.tensor([seed + i for i in range(args.num_envs)])})
+
+        env_reset_options = {
+            "robot_init_options": {
+                "init_xy": np.array([0.147, 0.028]),
+                "init_rot_quat": (Pose(q=euler2quat(0, 0, 0)) * Pose(q=[1, 0, 0, 0])).q,
+            },
+            "obj_init_options": {
+                "episode_id": eps_count % 24  # [0, 24)
+            }
+        }
+        obs, _ = env.reset(seed=seed, options=env_reset_options)
         instruction = env.unwrapped.get_language_instruction()
         print("instruction:", instruction[0])
         if model is not None:

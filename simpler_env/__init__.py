@@ -1,5 +1,14 @@
 import gymnasium as gym
-import mani_skill.envs
+try:
+    import mani_skill2_real2sim.envs
+    print("mani_skill2_real2sim imported")
+except:
+    pass
+try:
+    import mani_skill.envs
+    print("mani_skill 3 imported")
+except:
+    pass
 
 ENVIRONMENTS = [
     "google_robot_pick_coke_can",

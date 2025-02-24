@@ -141,7 +141,7 @@ class OpenVLAInference:
         elif self.policy_setup == "widowx_bridge":
             action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
 
-        # action["terminate_episode"] = np.array([0.0])
+        action["terminate_episode"] = np.array([0.0])
 
         return raw_action, action
 
