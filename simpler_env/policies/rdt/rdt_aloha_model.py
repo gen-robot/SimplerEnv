@@ -46,6 +46,7 @@ class RoboticDiffusionTransformerModel(object):
         robot_name="mobile_aloha_v2",
         enable_eef_obs=False,
         enable_qvel_obs=False,
+        **kwargs,
     ):
         self.args = args
         self.dtype = dtype
@@ -194,17 +195,16 @@ class RoboticDiffusionTransformerModel(object):
             state (torch.Tensor): The formatted vector for RDT ([B, N, 128]). 
         """
         # Rescale the gripper to the range of [0, 1] for  all robots, and other dim should not be rescale
-        if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2']:
+        if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2', 'rdt']:
             joints = joints / torch.tensor(
                 [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale[0], 
                 1, 1, 1, 1, 1, 1, self.gripper_qpos_scale[1]]]],
                 device=joints.device, dtype=joints.dtype
             )
-        elif self.robot_name in ['google_robot', 'widowx_bridge']:
-            joints = joints / torch.tensor(
-                [[[1, 1, 1, 1, 1, 1, self.gripper_qpos_scale, self.gripper_qpos_scale]]],
-                device=joints.device, dtype=joints.dtype
-            )
+        elif self.robot_name in ['widowx_bridge']: # [lower, upper]-> [0, 1]
+            upper = self.gripper_qpos_scale[1]
+            lower = self.gripper_qpos_scale[0]
+            joints[...,6] = (joints[...,6]-lower)/(upper-lower)
         else:
             raise ValueError("robot_name_error")
 
@@ -221,6 +221,7 @@ class RoboticDiffusionTransformerModel(object):
             device=joints.device, dtype=joints.dtype
         )
         state_elem_mask[:, ROBOT_INDICES[self.robot_name]["state_indices"]] = 1
+
         if eef_pos_rot6d is not None and self.enable_eef_obs:
             state[:, :, ROBOT_INDICES[self.robot_name]["eef_indices"]] = eef_pos_rot6d
             state_elem_mask[:, ROBOT_INDICES[self.robot_name]["eef_indices"]] = 1
@@ -241,24 +242,29 @@ class RoboticDiffusionTransformerModel(object):
             joints (torch.Tensor): The unformatted robot joint action. 
                 qpos ([B, N, 14]).
         """
-        action_indices = ROBOT_INDICES[self.robot_name]["state_indices"] # AGILEX_STATE_INDICES
-        joints = action[:, :, action_indices]
-        
+        if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2', 'rdt']:
+            action_indices = ROBOT_INDICES[self.robot_name]["state_indices"] # AGILEX_STATE_INDICE
+            joints = action[:, :, action_indices]
+        elif self.robot_name in ['widowx_bridge']:
+            action_indices = (ROBOT_INDICES[self.robot_name]["state_indices"] 
+                                + ROBOT_INDICES[self.robot_name]["eef_indices"]) # AGILEX_STATE_INDICE
+            joints = action[:, :, action_indices]
+        else:
+            raise ValueError("robot_name error")
+
         if unnorm_output:
             # Rescale the gripper back to the action range
             # Note that the action range and proprioception range are different
             # for Mobile ALOHA robot
-            if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2']:
+            if self.robot_name in ['mobile_aloha', 'mobile_aloha_v2', 'rdt']:
                 joints = joints * torch.tensor(
                     [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale[0], 
                     1, 1, 1, 1, 1, 1, self.gripper_action_scale[1]]]],
                     device=joints.device, dtype=joints.dtype
                 )
-            elif self.robot_name in ['google_robot', 'widowx_bridge']:
-                joints = joints / torch.tensor(
-                    [[[1, 1, 1, 1, 1, 1, self.gripper_action_scale, self.gripper_action_scale]]],
-                    device=joints.device, dtype=joints.dtype
-                )
+            elif self.robot_name in ['widowx_bridge']:
+                lower, upper = self.gripper_action_scale[0],self.gripper_action_scale[1]
+                joints[...,6] = 2/(upper-lower)*joints[...,6]-(lower*2/(upper-lower)+1) # [-1, 1] -> [lower, upper]
             else:
                 raise ValueError("robot_name_error")
         

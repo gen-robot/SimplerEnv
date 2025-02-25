@@ -82,7 +82,7 @@ class RDTActor:
         self.pretrained_checkpoint = pretrained_checkpoint
         self.lora_adapter = lora_adapter
 
-        self.make_policy()
+        self.make_policy(**kwargs)
         self.lang_tokenizer, self.lang_encoder = None, None
 
         self.last_instruction = None
@@ -98,7 +98,7 @@ class RDTActor:
         self.action_buffer = None
         self.internal_t = 0
 
-    def make_policy(self):
+    def make_policy(self, **kwargs):
         model = create_RDT_model(
             args=self.config,
             device=self.device,
@@ -107,7 +107,8 @@ class RDTActor:
             lora_adapter=self.lora_adapter,
             pretrained_vision_encoder_name_or_path=SIGLIP_PATH,
             control_frequency=self.ctrl_freq,
-            robot_name=self.robot_name
+            robot_name=self.robot_name,
+            **kwargs
         )
 
         self.rdt_policy = model
@@ -171,9 +172,12 @@ class RDTActor:
             }
         )
 
+    def transfer_qpos_2_ee_pose(self, qpos):
+        pass
+
     # RDT inference
     @torch.no_grad()
-    def infer(self):
+    def infer(self, unnorm_output=True):
         # fetch images in sequence [front, right, left]
         image_arrs = []
         for t in range(-self.n_frames, 0):  # n_frames = image_history_size
@@ -186,26 +190,17 @@ class RDTActor:
         images = [to_pil(arr) if arr is not None else None
                   for arr in image_arrs]
         
-        # get last qpos in shape [N, ] and unsqueeze to [1, N], N should be 14 for agilex, but 7 for widowx
+        # get last qpos in shape [14, ] and unsqueeze to [1, 14]
         proprio = self.obs_window[-1]['qpos']
         proprio = proprio.unsqueeze(0)
-        print("---------------------")
-        # print("observation proprio:",proprio)
-
-        from simpler_env.policies.rdt.rdt_model import transfer_qpos_2_ee_pose
-        from scipy.spatial.transform import Rotation as R
-        if self.fk_pose == None:
-            self.fk_pose = {}
-        obs_ee_pose = transfer_qpos_2_ee_pose(self.env, proprio[:,:6])
-        self.fk_pose["xyz"] = obs_ee_pose.p.squeeze().numpy()
-        self.fk_pose["euler_angle"] = R.from_quat(obs_ee_pose.q.squeeze()[[1,2,3,0]]).as_euler('xyz', degrees=True)
-        print("observation fk pose:", self.fk_pose)
 
         actions = self.rdt_policy.step(
             proprio=proprio,
             images=images,
-            text_embeds=self.text_embedding
+            text_embeds=self.text_embedding,
+            unnorm_output=unnorm_output
         )
+        import pdb; pdb.set_trace()
 
         return actions
 

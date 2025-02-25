@@ -33,7 +33,7 @@ class Args:
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
 
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1" 
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "StackGreenCubeOnYellowCubeBakedTexInScene-v1" 
     """The environment ID of the task you want to simulate. Can be one of
     PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
 
@@ -50,7 +50,7 @@ class Args:
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
-    model: Optional[str] = 'rt-1x' # 'rt-1x'   rdt   octo-base   octo-small
+    model: Optional[str] = 'rdt' # 'rt-1x'   rdt   octo-base   octo-small
     """The model to evaluate on the given environment. Can be one of octo-base, octo-small, rt-1x. If not given, random actions are sampled."""
 
     ckpt_path: str = ""
@@ -117,11 +117,13 @@ def main():
             elif args.model == "rdt":
                 policy_setup = "widowx_bridge" # widowx_bridge
                 model = RDTInference(
-                    action_scale=1, 
+                    action_scale=0.01, 
                     robot_name=policy_setup,
                     dtype=torch.bfloat16, 
                     action_horizon=1,
                     pretrained_checkpoint=RDT1B_PATH,
+                    env = env,
+                    enable_eef_obs = True,
                 )
             elif args.model is not None:
                 raise ValueError(f"Model {args.model} does not exist / is not supported.")
@@ -168,7 +170,6 @@ def main():
                                         torch.as_tensor(action["rot_axangle"]), 
                                         torch.as_tensor(action["gripper"])], dim=0)
                 else:
-                    model.get_env(env)
                     raw_action, action = model.step(obs, instruction[0])
                     # # x- > front, y -> left, z -> up, rot_1, rot_2, rot_3, gripper[-1 -> close, 1 -> open] -> 7 dimension 
                     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
