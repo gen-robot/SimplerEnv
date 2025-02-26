@@ -38,7 +38,7 @@ class Args:
     """The environment ID of the task you want to simulate. Can be one of
     PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
 
-    shader: str = "default"
+    shader: str = "default" # default, rt
 
     num_envs: int = 1
     """Number of environments to run. With more than 1 environment the environment will use the GPU backend 
@@ -94,12 +94,12 @@ def main():
         num_envs=args.num_envs,
         obs_mode="rgb+segmentation",
         control_mode=get_robot_control_mode(policy_setup),
-        # sim_backend="gpu",
+        sim_backend="gpu",
         sim_config={
             "sim_freq": 500,
             "control_freq": 5,
         },
-        max_episode_steps=60,
+        max_episode_steps=100,
         sensor_configs={"shader_pack": args.shader},
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
@@ -145,13 +145,7 @@ def main():
         seed = args.seed + eps_count
 
         env_reset_options = {
-            "robot_init_options": {
-                "init_xy": np.array([0.147, 0.028]),
-                "init_rot_quat": (Pose(q=euler2quat(0, 0, 0)) * Pose(q=[1, 0, 0, 0])).q,
-            },
-            "obj_init_options": {
-                "episode_id": eps_count % 24  # [0, 24)
-            }
+            "episode_id": torch.arange(args.num_envs) + eps_count
         }
         obs, _ = env.reset(seed=seed, options=env_reset_options)
         instruction = env.unwrapped.get_language_instruction()
@@ -167,15 +161,19 @@ def main():
                 start_time = time.time()
 
                 # my change
-                image = images[-1].to(torch.uint8).cpu().numpy()
-                assert len(image.shape) == 4
-                assert image.shape[0] == 1
-                image = image[0]
+                if args.model == "openvla":
+                    image = images[-1].to(torch.uint8).cpu().numpy()
+                    assert len(image.shape) == 4
+                    assert image.shape[0] == 1
+                    image = image[0]
+                else:
+                    image = images[-1]
 
                 raw_action, action = model.step(image, instruction)
 
                 # my change
-                action = {k: torch.tensor(v.reshape(1, -1)) for k, v in action.items()}
+                if args.model == "openvla":
+                   action = {k: torch.tensor(v.reshape(1, -1)) for k, v in action.items()}
 
                 action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
                 timers["inference"] += time.time() - start_time

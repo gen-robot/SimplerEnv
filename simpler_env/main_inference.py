@@ -4,8 +4,8 @@ import numpy as np
 # import tensorflow as tf
 
 from simpler_env.evaluation.argparse import get_args
-# from simpler_env.evaluation.maniskill2_evaluator import maniskill2_evaluator
-from simpler_env.evaluation.maniskill2_evaluator_grape import maniskill2_evaluator
+from simpler_env.evaluation.maniskill2_evaluator import maniskill2_evaluator
+# from simpler_env.evaluation.maniskill2_evaluator_grape import maniskill2_evaluator
 
 
 

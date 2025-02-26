@@ -84,6 +84,12 @@ class OpenVLAInference:
                 - 'gripper': np.ndarray of shape (1,), gripper action
                 - 'terminate_episode': np.ndarray of shape (1,), 1 if episode should be terminated, 0 otherwise
         """
+
+        # mychange
+        image = image.cpu().numpy()[0]
+        assert isinstance(task_description, list)
+        task_description = task_description[0]
+
         if task_description is not None:
             if task_description != self.task_description:
                 self.reset(task_description)
@@ -141,6 +147,9 @@ class OpenVLAInference:
             action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
 
         action["terminate_episode"] = np.array([0.0])
+
+        # mychange
+        action = {k: torch.tensor(v.reshape(1, -1)) for k, v in action.items()}
 
         return raw_action, action
 
