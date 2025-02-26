@@ -89,8 +89,6 @@ class RDTActor:
         self.action_buffer = None
         self.internal_t = 0
 
-        self.fk_pose = None
-
     def reset(self):
         self.obs_window = None
         self.text_embedding = None
@@ -200,8 +198,6 @@ class RDTActor:
             text_embeds=self.text_embedding,
             unnorm_output=unnorm_output
         )
-        import pdb; pdb.set_trace()
-
         return actions
 
     def predict_action(self, obs: Dict, instr: str=None, text_embedding: torch.Tensor=None):

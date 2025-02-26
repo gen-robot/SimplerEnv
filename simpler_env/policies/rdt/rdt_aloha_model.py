@@ -297,14 +297,12 @@ class RoboticDiffusionTransformerModel(object):
             self.image_processor.size["height"], 
             self.image_processor.size["width"], 3), dtype=np.uint8
         ) * background_color
-        
         # Preprocess the images by order and encode them
         image_tensor_list = []
         for image in images:
             if image is None:
                 # Replace it with the background image
-                image = Image.fromarray(background_image)
-            
+                image = Image.fromarray(background_image) # [384,384,3] is [H,W,C] -> [W,H]
             if self.image_size is not None:
                 image = transforms.Resize(self.data_args.image_size)(image)
             

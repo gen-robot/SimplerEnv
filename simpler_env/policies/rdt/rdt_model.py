@@ -74,7 +74,7 @@ class RDTInference(RDTActor):
             )
         # single arm in maniskill3
         elif self.robot_name in ['widowx_bridge']:
-            ee_pose =  self.transfer_qpos_2_ee_pose(obs['agent']['qpos'][...,:6])
+            ee_pose = self.transfer_qpos_2_ee_pose(obs['agent']['qpos'][...,:6])
             ee_pose_xyz = ee_pose.p.squeeze()
             ee_rot_matrix = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]]).as_matrix()[np.newaxis,:,:]
             ee_pose_rot_angle = torch.from_numpy(
@@ -94,6 +94,7 @@ class RDTInference(RDTActor):
                         },
                 }
             )
+            # obs['sensor_data'][cam_name]['rgb'] -> (480,640,3) -> [H,W,C]  ->(permute) [C,H,W]
         else:
             ValueError(f"robot_name:{self.robot_name} error in update_obs_window()")
 
@@ -152,41 +153,43 @@ class RDTInference(RDTActor):
         qpos_action = self.predict_action(observations, task_description, text_embedding)
  
         if self.robot_name in ["widowx_bridge"]:
-
             raw_action = qpos_action
-            rotation_matrix = ortho6d_to_rotation_matrix(
-                                    tf.convert_to_tensor(qpos_action[0,10:], dtype=tf.float32)
-                                    ).numpy()
+            delta = False
             action = {}
-            action['world_vector'] = qpos_action[0,7:10] * self.action_scale
-            action['gripper'] = qpos_action[0,6:7]
-            action['rot_axangle'] = R.from_matrix(rotation_matrix).as_rotvec() * self.action_scale # radian 
-            action["terminate_episode"] = np.array([0.0])
-
-            # # 需要处理一下
-            # obs_fk_pose = {}
-            # obs_fk_pose['xyz'] = self.obs_window[-1]['eef_pos_rot6d'][:3]
-            # obs_fk_pose['rot_matrix'] = self.obs_window[-1]['eef_pos_rot6d'][3:]
-            
-            # ee_pose = self.transfer_qpos_2_ee_pose(qpos_action[0,:6]) # just first 6 joints
-
-            # raw_action = {}
-            # raw_action["world_vector"] = ee_pose.p.squeeze().numpy()
-            # raw_action["euler_angle"] = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]]).as_euler('xyz', degrees=True) 
-
-            # action = {}
-            # import pdb; pdb.set_trace()
-            # action["world_vector"] = (raw_action["world_vector"] - self.fk_pose["xyz"]) * self.action_scale
-            # action["gripper"] = qpos_action[0,6]
-
-            # action_rotation_ax, action_rotation_angle = self._get_relative_rotation_axis_angle(
-            #                                         np.radians(self.fk_pose["euler_angle"]),
-            #                                         np.radians(raw_action["euler_angle"])
-            #                                         )
-            # # print("rotation_ax", action_rotation_ax)
-            # # print("rotation_angle", action_rotation_angle)
-            # action["rot_axangle"] = action_rotation_ax * action_rotation_angle * self.action_scale
-            # action["terminate_episode"] = np.array([0.0])
+            if delta:
+                joint_fk = True
+                last_obs_state = {}
+                last_obs_state['qpos'] = self.obs_window[-1]["qpos"].numpy()
+                last_obs_state['eef_pos_rot6d'] = self.obs_window[-1]["eef_pos_rot6d"].numpy()
+                if joint_fk:
+                    ee_pose = self.transfer_qpos_2_ee_pose(qpos_action[0,:6])
+                    action["world_vector"] = (ee_pose.p.squeeze().numpy() - last_obs_state['eef_pos_rot6d'][:3]) * self.action_scale
+                    matrix_new = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]])
+                    matrix_old = R.from_matrix(ortho6d_to_rotation_matrix(
+                        tf.convert_to_tensor(last_obs_state['eef_pos_rot6d'][3:], dtype=tf.float32)
+                        ).numpy())
+                    action['rot_axangle'] = (matrix_new * matrix_old.inv()).as_rotvec() * self.action_scale # radian 
+                    action['gripper'] = qpos_action[0,6:7]
+                    action["terminate_episode"] = np.array([0.0])
+                else:
+                    matrix_new = R.from_matrix(ortho6d_to_rotation_matrix(
+                                            tf.convert_to_tensor(qpos_action[0,10:], dtype=tf.float32)
+                                            ).numpy())
+                    matrix_old = R.from_matrix(ortho6d_to_rotation_matrix(
+                                            tf.convert_to_tensor(last_obs_state['eef_pos_rot6d'][3:], dtype=tf.float32)
+                                            ).numpy())
+                    action['world_vector'] = (qpos_action[0,7:10] - last_obs_state['eef_pos_rot6d'][:3])* self.action_scale
+                    action['rot_axangle'] = (matrix_new * matrix_old.inv()).as_rotvec() * self.action_scale # radian 
+                    action['gripper'] = qpos_action[0,6:7]
+                    action["terminate_episode"] = np.array([0.0])
+            else:
+                rotation_matrix = ortho6d_to_rotation_matrix(
+                                        tf.convert_to_tensor(qpos_action[0,10:], dtype=tf.float32)
+                                        ).numpy()
+                action['world_vector'] = qpos_action[0,7:10] * self.action_scale
+                action['gripper'] = qpos_action[0,6:7]
+                action['rot_axangle'] = R.from_matrix(rotation_matrix).as_rotvec() * self.action_scale # radian 
+                action["terminate_episode"] = np.array([0.0])
 
         elif self.robot_name in ["mobile_aloha","mobile_aloha_v2",'rdt']:
             raw_action = qpos_action
@@ -227,10 +230,11 @@ class RDTInference(RDTActor):
                     self.obs_window[t]['images'][cam_name]
                 )
         
+        # image_arrs[3].shape -> [3,480,640] -> [C,H,W]
         to_pil = transforms.ToPILImage()
         images = [to_pil(arr) if arr is not None else None
                   for arr in image_arrs]
-        
+        # images -> [640, 480] -> [W,H]
         if self.robot_name in ['mobile_aloha','mobile_aloha_v2','rdt']:
             # get last qpos in shape [14, ] and unsqueeze to [1, 14]
             proprio = self.obs_window[-1]['qpos']
