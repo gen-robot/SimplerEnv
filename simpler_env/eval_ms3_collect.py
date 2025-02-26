@@ -46,6 +46,9 @@ class Args:
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
+    start_episodes: int = 0
+    """Episode start index, for generation resuming"""
+
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
@@ -131,7 +134,7 @@ def main():
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     eval_metrics = defaultdict(list)
-    eps_count = 0
+    eps_count = args.start
 
     print(f"Running Real2Sim Evaluation of model {args.model} on environment {args.env_id}")
     print(f"Using {args.num_envs} environments on the {sim_backend} simulation backend")

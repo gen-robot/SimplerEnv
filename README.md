@@ -141,10 +141,10 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
 --model="octo-small" -e PutSpoonOnTableClothInScene-v1 -s 0 --num-episodes 128 --num-envs 64
 
 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
---model="octo-small" -e PutCarrotOnPlateInScene-v1 -s 0 --num-episodes 128 --num-envs 64
+--model="octo-small" -e PutCarrotOnPlateInScene-v1 -s 0 --num-episodes 256 --num-envs 64
 
 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
---model="octo-small" -e StackGreenCubeOnYellowCubeBakedTexInScene-v1 -s 0 --num-episodes 512 --num-envs 64
+--model="octo-small" -e StackGreenCubeOnYellowCubeBakedTexInScene-v1 -s 0 --num-episodes 960 --num-envs 64
 
 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
 --model="octo-small" -e PutEggplantInBasketScene-v1 -s 0 --num-episodes 128 --num-envs 64
@@ -153,6 +153,8 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
 # PutCarrotOnPlateInScene-v1
 # StackGreenCubeOnYellowCubeBakedTexInScene-v1
 # PutEggplantInBasketScene-v1
+
+tfds build --overwrite
 ```
 
 ## train
