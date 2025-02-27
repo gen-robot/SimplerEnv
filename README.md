@@ -52,7 +52,6 @@ pip install flash-attn --no-build-isolation
 git clone git@github.com:gen-robot/openvla.git && cd openvla && git checkout dev-jijia && pip install -e . && cd ..
 #git clone https://github.com/openvla/openvla.git && cd openvla && pip install -e . && cd ..
 pip install -U tyro
-pip install jaxlib==0.4.20 "scipy<=1.12.0,>=1.6.0"
 ```
 
 ### grape
@@ -86,7 +85,7 @@ huggingface-cli download rail-berkeley/octo-base
 ### openvla maniskill3
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/real2sim_eval_maniskill3.py \
+XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
   --model="openvla" --ckpt_path="openvla/openvla-7b" \
   -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1
   
@@ -160,7 +159,7 @@ tfds build --overwrite
 ## train
 
 ```bash
-torchrun --standalone --nnodes=1 --nproc-per-node 2 simpler_env/runner/finetune_grape.py \
+torchrun --standalone --nnodes=1 --nproc-per-node 4 simpler_env/runner/finetune_grape.py \
   --vla_path "openvla/openvla-7b" \
   --dataset_name "put carrot on plate" \
   --chosen_traj_dir "results" \
