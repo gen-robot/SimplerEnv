@@ -204,7 +204,7 @@ class RoboticDiffusionTransformerModel(object):
         elif self.robot_name in ['widowx_bridge']: # [lower, upper]-> [0, 1]
             upper = self.gripper_qpos_scale[1]
             lower = self.gripper_qpos_scale[0]
-            joints[...,6] = (joints[...,6]-lower)/(upper-lower)
+            joints[...,6:7] = (joints[...,6:7]-lower)/(upper-lower)
         else:
             raise ValueError("robot_name_error")
 
@@ -247,7 +247,8 @@ class RoboticDiffusionTransformerModel(object):
             joints = action[:, :, action_indices]
         elif self.robot_name in ['widowx_bridge']:
             action_indices = (ROBOT_INDICES[self.robot_name]["state_indices"] 
-                                + ROBOT_INDICES[self.robot_name]["eef_indices"]) # AGILEX_STATE_INDICE
+                                + ROBOT_INDICES[self.robot_name]["eef_indices"]
+                                + ROBOT_INDICES[self.robot_name]["qvel_indices"])
             joints = action[:, :, action_indices]
         else:
             raise ValueError("robot_name error")
@@ -264,7 +265,7 @@ class RoboticDiffusionTransformerModel(object):
                 )
             elif self.robot_name in ['widowx_bridge']:
                 lower, upper = self.gripper_action_scale[0],self.gripper_action_scale[1]
-                joints[...,6] = 2/(upper-lower)*joints[...,6]-(lower*2/(upper-lower)+1) # [-1, 1] -> [lower, upper]
+                joints[...,6:7] = 2/(upper-lower)*joints[...,6:7]-(lower*2/(upper-lower)+1) # [-1, 1] -> [lower, upper]
             else:
                 raise ValueError("robot_name_error")
         

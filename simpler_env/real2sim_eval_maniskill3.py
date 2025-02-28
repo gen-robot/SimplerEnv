@@ -33,9 +33,11 @@ class Args:
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
 
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "StackGreenCubeOnYellowCubeBakedTexInScene-v1" 
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutEggplantInBasketScene-v1" 
     """The environment ID of the task you want to simulate. Can be one of
-    PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
+    PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1 and
+
+    PandaPutCarrotOnPlateInScene-v1, PandaPutSpoonOnTableClothInScene-v1, PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1, PandaPutEggplantInBasketScene-v1"""
 
     shader: str = "default"
 
@@ -117,13 +119,15 @@ def main():
             elif args.model == "rdt":
                 policy_setup = "widowx_bridge" # widowx_bridge
                 model = RDTInference(
-                    action_scale=0.01, 
+                    ctrl_freq = 25,
+                    action_scale=1, 
                     robot_name=policy_setup,
                     dtype=torch.bfloat16, 
                     action_horizon=1,
-                    pretrained_checkpoint=RDT1B_PATH,
+                    pretrained_checkpoint=RDT1B_PATH, # RDT1B_FT_PATH， RDT1B_PATH
                     env = env,
                     enable_eef_obs = True,
+                    enable_qvel_obs = False,
                 )
             elif args.model is not None:
                 raise ValueError(f"Model {args.model} does not exist / is not supported.")
