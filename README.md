@@ -1,233 +1,206 @@
-# SimplerEnv: Simulated Manipulation Policy Evaluation Environments for Real Robot Setups
+# Simpler
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/simpler-env/SimplerEnv/blob/main/example.ipynb)
+## install
 
-![](./images/teaser.png)
-
-Significant progress has been made in building generalist robot manipulation policies, yet their scalable and reproducible evaluation remains challenging, as real-world evaluation is operationally expensive and inefficient. We propose employing physical simulators as efficient, scalable, and informative complements to real-world evaluations. These simulation evaluations offer valuable quantitative metrics for checkpoint selection, insights into potential real-world policy behaviors or failure modes, and standardized setups to enhance reproducibility.
-
-This repository is based in the [SAPIEN](https://sapien.ucsd.edu/) simulator and the [ManiSkill 3](https://github.com/haosulab/ManiSkill) robotics framework. Note that to reproduce the original results, you need to use `main` branch which uses a older version of ManiSkill and SAPIEN. The version used here leverages the CPU/GPU simulation and rendering capabilities of the latest ManiSkill and SAPIEN.
-
-The `maniskill3` branch of SimplerEnv currently is simply used for installing the inference setup for policies like RT-1 and Octo. The real2sim environments are written in ManiSkill 3's github repo.
-
-
-We hope that our work guides and inspires future real-to-sim evaluation efforts.
-
-- [SimplerEnv: Simulated Manipulation Policy Evaluation Environments for Real Robot Setups](#simplerenv-simulated-manipulation-policy-evaluation-environments-for-real-robot-setups)
-  - [Getting Started](#getting-started)
-  - [Installation](#installation)
-  - [Examples](#examples)
-  - [Current Environments](#current-environments)
-  - [Compare Your Policy Evaluation Approach to SIMPLER](#compare-your-policy-evaluation-approach-to-simpler)
-  - [Code Structure](#code-structure)
-  - [Adding New Policies](#adding-new-policies)
-  - [Adding New Real-to-Sim Evaluation Environments and Robots](#adding-new-real-to-sim-evaluation-environments-and-robots)
-  - [Full Installation (RT-1 and Octo Inference, Env Building)](#full-installation-rt-1-and-octo-inference-env-building)
-    - [RT-1 Inference Setup](#rt-1-inference-setup)
-    - [Octo Inference Setup](#octo-inference-setup)
-  - [Troubleshooting](#troubleshooting)
-  - [Citation](#citation)
-
-
-## Getting Started
-
-Follow the [Installation](#installation) section to install the minimal requirements to create our environments. Then you can run the following minimal inference script with interactive python.
-
-```python
-import gymnasium as gym
-from simpler_env.utils.env.observation_utils import get_image_from_maniskill3_obs_dict
-from mani_skill.envs.tasks.digital_twins.bridge_dataset_eval import *
-env = gym.make(
-  "PutSpoonOnTableClothInScene-v1",
-  obs_mode="rgb+segmentation",
-  num_envs=16, # if num_envs > 1, GPU simulation backend is used.
-)
-obs, _ = env.reset()
-# returns language instruction for each parallel env
-instruction = env.unwrapped.get_language_instruction()
-print("instruction:", instruction[0])
-
-while True:
-  # action[:3]: delta xyz; action[3:6]: delta rotation in axis-angle representation;
-  # action[6:7]: gripper (the meaning of open / close depends on robot URDF)
-  image = get_image_from_maniskill3_obs_dict(env, obs) # this is the image observation for policy inference
-  action = env.action_space.sample() # replace this with your policy inference
-  obs, reward, terminated, truncated, info = env.step(action)
-  if truncated.any():
-      break
-print("Episode Info", info)
-```
-<!-- 
-Additionally, you can play with our environments in an interactive manner through [`ManiSkill2_real2sim/mani_skill2_real2sim/examples/demo_manual_control_custom_envs.py`](https://github.com/simpler-env/ManiSkill2_real2sim/blob/main/mani_skill2_real2sim/examples/demo_manual_control_custom_envs.py). See the script for more details and commands. -->
-
-## Installation
-
-The basic installation is simply installing ManiSkill 3 which officially supports real2sim environments.
-
-Prerequisites:
-- CUDA version >=11.8 (this is required if you want to perform a full installation of this repo and perform RT-1 or Octo inference)
-- An NVIDIA GPU (ideally RTX; for non-RTX GPUs, such as 1080Ti and A100, environments that involve ray tracing will be slow). Currently TPU is not supported as SAPIEN requires a GPU to run.
-
-First git clone this repo:
 ```bash
-git clone https://github.com/simpler-env/SimplerEnv
+conda create -n simpler -y python=3.10
+conda activate simpler
+mkdir thirdparty && cd thirdparty
 ```
 
-Create a conda/mamba environment and install dependencies:
+### simpler (maniskill3)
+
 ```bash
-cd path/to/SimplerEnv
-conda create -n simpler_env python=3.10.12
-conda activate simpler_env
-cd Maniskill
+#git clone https://github.com/simpler-env/SimplerEnv --recurse-submodules && cd SimplerEnv && git checkout maniskill3 && cd ..
+pip install --upgrade git+https://github.com/haosulab/ManiSkill.git
+cd SimplerEnv && pip install -e . && cd ..
+```
+
+### simpler (maniskill2)
+
+```bash
+cd SimplerEnv
 pip install -e .
-cd ..
-# pip install --upgrade git+https://github.com/haosulab/ManiSkill.git
-pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1  tyro==0.8.5 --index-url https://download.pytorch.org/whl/cu121
-# pip install torch==2.3.1 tyro==0.8.5
-pip install -e .
+cd ManiSkill2_real2sim && pip install -e . && cd ..
+conda install -c conda-forge -y ffmpeg=4.2.2
+pip install matplotlib mediapy "gymnasium>=0.28.1,<1.0" numpy==1.24.4
+#pip install tensorflow[and_cuda]
 ```
 
+### openvla infer
 
-**If you'd like to perform evaluations on our provided agents (e.g., RT-1, Octo), or add new robots and environments, please additionally follow the full installation instructions [here](#full-installation-rt-1-and-octo-inference).**
+```bash
+#pip install -r requirements_full_install.txt
+pip install matplotlib mediapy
+pip install dm-tree
+pip install transformers==4.40.1 torchvision timm==0.9.10 tokenizers==0.19.1 accelerate
 
-## Current Environments
-
-In ManiSkill 3, the following environments (a subset of the original environments in the paper) have been ported over to ManiSkill 3 with GPU simulation and rendering support.
-
-| Task Name | ManiSkill 3 Env Name | Image (Visual Matching) |
-| ----------- | ----- | ----- |
-| widowx_spoon_on_towel    | PutSpoonOnTableClothInScene-v1                | <img src="./images/example_visualization/widowx_spoon_on_towel_visual_matching.png" width="128" height="128" > |
-| widowx_carrot_on_plate   | PutCarrotOnPlateInScene-v1                | <img src="./images/example_visualization/widowx_carrot_on_plate_visual_matching.png" width="128" height="128" > |
-| widowx_stack_cube        | StackGreenCubeOnYellowCubeBakedTexInScene-v1  | <img src="./images/example_visualization/widowx_stack_cube_visual_matching.png" width="128" height="128" > |
-| widowx_put_eggplant_in_basket        | PutEggplantInBasketScene-v1  | <img src="./images/example_visualization/widowx_put_eggplant_in_basket_visual_matching.png" width="128" height="128" > |
-
-
-## Adding New Policies
-
-If you want to use existing environments for evaluating new policies, you can follow the instructions below.
-
-1. Implement new policy inference scripts in `simpler_env/policies/{your_new_policy}`, following the examples for RT-1 (`simpler_env/policies/rt1`) and Octo (`simpler_env/policies/octo`) policies.
-2. You can now use `simpler_env/simple_inference_visual_matching_prepackaged_envs.py` to perform policy evaluations in simulation.
-   - If the policy behaviors deviate a lot from those in the real-world, you can write similar scripts as in `simpler_env/utils/debug/{policy_name}_inference_real_video.py` to debug the policy behaviors. The debugging script performs policy inference by feeding real eval video frames into the policy. If the policy behavior still deviates significantly from real, this may suggest that policy actions are processed incorrectly into the simulation environments. Please double check action orderings and action spaces.
-3. If you'd like to perform customized evaluations,
-   - Modify a few lines in `simpler_env/main_inference.py` to support your new policies.
-   - Add policy inference scripts in `scripts/` with customized configs.
-   - Optionally, modify the scripts in `tools/calc_metrics.py` to calculate the real-to-sim evaluation metrics for your new policies.
-
-
-## Adding New Real-to-Sim Evaluation Environments and Robots
-
-This is a WIP, and a new and updated tutorial for ManiSkill 3 will be coming soon on the ManiSkill 3 github / documentation.
-
-
-## Full Installation (RT-1 and Octo Inference)
-
-If you'd like to perform evaluations on our provided agents (e.g., RT-1, Octo), or add new robots and environments, please follow the full installation instructions below.
-
-```
-sudo apt install ffmpeg
+pip install datasets
+pip install ninja
+pip install flash-attn --no-build-isolation
+#pip install flash-attn==2.6.1 --no-build-isolation
+#pip install flash-attn==2.5.5 --no-build-isolation
 ```
 
-```
-cd path/to/SimplerEnv
-pip install -e .
-pip install tensorflow==2.15.0
-pip install -r requirements_full_install.txt
-pip install tensorflow[and-cuda]==2.15.1 # tensorflow gpu support
+### openvla train
 
-pip install --upgrade "jax[cuda12_pip]==0.4.20" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-git clone https://github.com/octo-models/octo/
-cd octo
-git checkout 653c54acde686fde619855f2eac0dd6edad7116b  # we use octo-1.0
-pip install -e .
+```bash
+git clone git@github.com:gen-robot/openvla.git && cd openvla && git checkout dev-jijia && pip install -e . && cd ..
+#git clone https://github.com/openvla/openvla.git && cd openvla && pip install -e . && cd ..
+pip install -U tyro
+
+wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+pip install flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+rm flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 ```
 
-Install simulated annealing utils for system identification:
-```
-pip install git+https://github.com/nathanrooy/simulated-annealing
-```
+### grape
 
-### RT-1 Inference Setup
+```bash
+git clone https://github.com/DelinQu/SimplerEnv-OpenVLA --recurse-submodules
 
-Download RT-1 Checkpoint:
-```
-# First, install gsutil following https://cloud.google.com/storage/docs/gsutil_install
+git clone https://github.com/aiming-lab/GRAPE.git
 
-# Make a checkpoint dir:
-mkdir {this_repo}/checkpoints
-
-# RT-1-X
-cd {this_repo}
-gsutil -m cp -r gs://gdm-robotics-open-x-embodiment/open_x_embodiment_and_rt_x_oss/rt_1_x_tf_trained_for_002272480_step.zip .
-unzip rt_1_x_tf_trained_for_002272480_step.zip
-mv rt_1_x_tf_trained_for_002272480_step checkpoints
-rm rt_1_x_tf_trained_for_002272480_step.zip
-
-# RT-1-Converged
-cd {this_repo}
-gsutil -m cp -r gs://gdm-robotics-open-x-embodiment/open_x_embodiment_and_rt_x_oss/rt_1_tf_trained_for_000400120 .
-mv rt_1_tf_trained_for_000400120 checkpoints
-
-# RT-1-15%
-cd {this_repo}
-gsutil -m cp -r gs://gdm-robotics-open-x-embodiment/open_x_embodiment_and_rt_x_oss/rt_1_tf_trained_for_000058240 .
-mv rt_1_tf_trained_for_000058240 checkpoints
-
-# RT-1-Begin
-cd {this_repo}
-gsutil -m cp -r gs://gdm-robotics-open-x-embodiment/open_x_embodiment_and_rt_x_oss/rt_1_tf_trained_for_000001120 .
-mv rt_1_tf_trained_for_000001120 checkpoints      
+git clone https://github.com/kpertsch/rlds_dataset_builder.git
+cd rlds_dataset_builder
+conda env create -f environment_ubuntu.yml
+conda activate rlds_env
 ```
 
-### Octo Inference Setup
+### octo
 
-Earlier instructions already setup Octo for inference.
+```bash
+git clone https://github.com/octo-models/octo.git
+cd octo && pip install -e .
+pip install -r requirements.txt
+pip install -U tryo
+pip install numpy==1.24.4
+pip install "jax[cuda12_pip]==0.4.20" --find-links https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
-If you are using CUDA 12, then to use GPU for Octo inference, you need CUDA version >= 12.2 to satisfy the requirement of Jax; in this case, you can perform a runfile install of the corresponding CUDA (e.g., version 12.3), then set the environment variables whenever you run Octo inference scripts:
-
-`PATH=/usr/local/cuda-12.3/bin:$PATH   LD_LIBRARY_PATH=/usr/local/cuda-12.3/lib64:$LD_LIBRARY_PATH   bash scripts/octo_xxx_script.sh`
-
-### Evaluating Octo and RT-1
-
-The new ManiSkill3 evaluation script is in `simpler_env/real2sim_eval_maniskill3.py`. See the script for more details.`[Note: we don't use the script 'main_inference.py'] `An example usage is shown below:
-```
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/real2sim_eval_maniskill3.py \
-  --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
-```
-to evaluate 192 episodes of octo-small model on PutEggplantInBasketScene-v1 environment with 64 parallel environments. You can use more environments if you have enough memory. Note that this is not deterministic and results may vary between runs.
-
-
-`There are some bugs:  model.reset(instruction) should be model.reset(instruction[0]); action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1), dim should be 0; raw_action, action = model.step(images[-1], instruction), instruction should be instruction[0], and images[-1] should be images[-1].numpy().squeeze()`
-
-## Troubleshooting
-
-1. If you encounter issues such as
-
-```
-RuntimeError: vk::Instance::enumeratePhysicalDevices: ErrorInitializationFailed
-Some required Vulkan extension is not present. You may not use the renderer to render, however, CPU resources will be still available.
-Segmentation fault (core dumped)
+huggingface-cli download rail-berkeley/octo-base
 ```
 
-Follow [this link](https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/installation.html#vulkan) to troubleshoot the issue.
+## run
 
-2. You can ignore the following error if it is caused by tensorflow's internal code. Sometimes this error will occur when running the inference or debugging scripts.
+### openvla maniskill3
 
+```bash
+# grape
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1 \
+  --openvla_unnorm_key="Simpler"
+
+
+
+# eval
+ckpt_path="../openvla/checkpoints/grape_simpler_sft_dataset/steps_4000/merged_004000"
+#ckpt_path="openvla/openvla-7b"
+XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1 \
+  --openvla_unnorm_key="grape_simpler_sft_dataset"
+
+
+# dpo
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+for task in "PutSpoonOnTableClothInScene-v1" "PutCarrotOnPlateInScene-v1" "StackGreenCubeOnYellowCubeBakedTexInScene-v1" "PutEggplantInBasketScene-v1"; do
+  CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect_dpo.py \
+    --model="openvla" --ckpt_path="${ckpt_path}" -e "${task}" \
+    --openvla_unnorm_key="Simpler"
+done
+  
+# PutSpoonOnTableClothInScene-v1
+# PutCarrotOnPlateInScene-v1
+# StackGreenCubeOnYellowCubeBakedTexInScene-v1
+# PutEggplantInBasketScene-v1
 ```
-TypeError: 'NoneType' object is not subscriptable
+
+### openvla maniskill2
+
+```bash
+ckpt_path="openvla/openvla-7b" # "/home/jijia/nfs/Project/RLVLA/thirdparty/models/openvla-7b"
+policy_model="openvla"
+
+logging_dir="results/openvla-7b${action_ensemble_temp}"
+gpu_id=1
+
+
+scene_name=bridge_table_1_v1
+robot=widowx
+rgb_overlay_path=ManiSkill2_real2sim/data/real_inpainting/bridge_real_eval_1.png
+robot_init_x=0.147
+robot_init_y=0.028
+
+CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path ${ckpt_path} --logging-dir ${logging_dir} \
+  --robot ${robot} --policy-setup widowx_bridge \
+  --control-freq 5 --sim-freq 500 --max-episode-steps 100 \
+  --env-name PutCarrotOnPlateInScene-v0 --scene-name ${scene_name} \
+  --rgb-overlay-path ${rgb_overlay_path} \
+  --robot-init-x ${robot_init_x} ${robot_init_x} 1 --robot-init-y ${robot_init_y} ${robot_init_y} 1 --obj-variation-mode episode --obj-episode-range 0 24 \
+  --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1;
+  
+# action_ensemble_temp="-0.8"
+# --action-ensemble-temp ${action_ensemble_temp}
 ```
 
+### grape
 
-## Citation
-
-If you find our ideas / environments helpful, please cite our work at
+```bash
+python simpler_env/main_inference.py --policy-model openvla --ckpt-path "openvla/openvla-7b" \
+  --robot widowx --policy-setup widowx_bridge \
+  --control-freq 5 --sim-freq 500 --max-episode-steps 100 \
+  --env-name PutCarrotOnPlateInScene-v0 --scene-name bridge_table_1_v1 \
+  --rgb-overlay-path ./ManiSkill2_real2sim/data/real_inpainting/bridge_real_eval_1.png \
+  --robot-init-x 0.147 0.147 1 --robot-init-y 0.028 0.028 1 --obj-variation-mode episode --obj-episode-range 0 50 \
+  --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1
 ```
-@article{li24simpler,
-         title={Evaluating Real-World Robot Manipulation Policies in Simulation},
-         author={Xuanlin Li and Kyle Hsu and Jiayuan Gu and Karl Pertsch and Oier Mees and Homer Rich Walke and Chuyuan Fu and Ishikaa Lunawat and Isabel Sieh and Sean Kirmani and Sergey Levine and Jiajun Wu and Chelsea Finn and Hao Su and Quan Vuong and Ted Xiao},
-         journal = {arXiv preprint arXiv:2405.05941},
-         year={2024}
-}
+
+### octo
+
+```bash
+# 42 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PutSpoonOnTableClothInScene-v1 -s 0 --num-episodes 256 --num-envs 64
+
+# 14 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PutCarrotOnPlateInScene-v1 -s 0 --num-episodes 512 --num-envs 64
+
+# 2 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e StackGreenCubeOnYellowCubeBakedTexInScene-v1 -s 0 --num-episodes 2880 --num-envs 144
+
+# 57 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PutEggplantInBasketScene-v1 -s 0 --num-episodes 256 --num-envs 64
+
+# PutSpoonOnTableClothInScene-v1
+# PutCarrotOnPlateInScene-v1
+# StackGreenCubeOnYellowCubeBakedTexInScene-v1
+# PutEggplantInBasketScene-v1
+
+tfds build --overwrite
 ```
 
-<!-- TODO: add a maniskill 3 citation -->
+## train
+
+```bash
+torchrun --standalone --nnodes=1 --nproc-per-node 4 simpler_env/runner/finetune_grape.py \
+  --vla_path "openvla/openvla-7b" \
+  --dataset_name "put carrot on plate" \
+  --chosen_traj_dir "results" \
+  --rejected_traj_dir "results" \
+  --run_root_dir "results/grape/root" \
+  --adapter_tmp_dir "results/grape/adapter" \
+  --lora_rank 32 \
+  --batch_size 1 \
+  --grad_accumulation_steps 1 \
+  --learning_rate 2e-5 \
+  --image_aug False \
+  --wandb_project "rlvla" \
+  --wandb_entity "hosnls" \
+  --save_steps 1000
+```
+

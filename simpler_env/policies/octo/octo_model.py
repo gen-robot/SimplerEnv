@@ -172,8 +172,8 @@ class OctoInference:
         self.rng, key = jax.random.split(self.rng)  # each shape [2,]
         # print("octo local rng", self.rng, key)
 
-        input_observation = {"image_primary": images, "pad_mask": pad_mask}
-        # images.shape (b, h, w, c, 3),  pad_mask.shape (b, h)
+        input_observation = {"image_primary": images, "timestep_pad_mask": pad_mask}
+        # images.shape (b, h, w, c, 3),  timestep_pad_mask.shape (b, h)
         norm_raw_actions = self.model.sample_actions(
             input_observation,
             self.task,
