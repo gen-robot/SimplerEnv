@@ -43,8 +43,14 @@ class Args:
     which runs faster enabling faster large-scale evaluations. Note that the overall behavior of the simulation
     will be slightly different between CPU and GPU backends."""
 
-    num_episodes: int = 100
+    num_episodes: int = 23
     """Number of episodes to run and record evaluation metrics over"""
+
+    num_trails: int = 5
+    """Number of trails per episode"""
+
+    max_trails: int = 30
+    """Maximum number of trails per episode"""
 
     record_dir: str = "videos"
     """The directory to save videos and results"""
@@ -132,11 +138,10 @@ def main():
         raise NotImplementedError
 
     model_name = Path(args.ckpt_path).name if args.ckpt_path else "random"
-    exp_dir = Path(args.record_dir) / f"collect/{model_name}_{args.env_id}"
+    exp_dir = Path(args.record_dir) / f"dpo/{model_name}_{args.env_id}"
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     eval_metrics = defaultdict(list)
-    eps_count = 0
 
     print(f"Running Real2Sim Evaluation of model {args.model} on environment {args.env_id}")
     print(f"Using {args.num_envs} environments on the {sim_backend} simulation backend")
@@ -144,75 +149,85 @@ def main():
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
     total_start_time = time.time()
 
-    while eps_count < args.num_episodes:
-        seed = args.seed + eps_count
+    for idx_episode in range(args.num_episodes):
+        has_success, has_fail = False, False
+        idx_trail = 0
 
-        env_reset_options = {
-            "episode_id": torch.arange(args.num_envs) + eps_count
-        }
-        obs, _ = env.reset(seed=seed, options=env_reset_options)
-        obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
-        instruction = env.unwrapped.get_language_instruction()
-        model.reset(instruction)
+        while not (has_success and has_fail) or idx_trail < args.num_trails:
+            seed = args.seed + idx_episode * args.num_trails + idx_trail
 
-        print("instruction[0]:", instruction[0])
-
-        datas = [{
-            "image": [],
-            "instruction": instruction[idx],
-            "action": [],
-            "info": [],
-
-        } for idx in range(args.num_envs)]
-
-        elapsed_steps = 0
-        predicted_terminated, truncated = False, False
-        while not (predicted_terminated or truncated):
-            # inference
-            start_time = time.time()
-
-            raw_action, action = model.step(obs_image, instruction)
-            action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
-            # action = env.action_space.sample() # random
-
-            timers["inference"] += time.time() - start_time
-
-            # step
-            start_time = time.time()
-
-            obs, reward, terminated, truncated, info = env.step(action)
+            env_reset_options = {
+                "episode_id": torch.tensor([idx_episode] * args.num_envs),  # same episode id in one episode
+            }
+            obs, _ = env.reset(seed=seed, options=env_reset_options)
             obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
-            info = {k: v.cpu().numpy() for k, v in info.items()}
-            elapsed_steps += 1
-            truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
+            instruction = env.unwrapped.get_language_instruction()
+            model.reset(instruction)
 
-            timers["env.step"] += time.time() - start_time
+            print("instruction[0]:", instruction[0])
 
-            info_dict = {k: v.mean().tolist() for k, v in info.items()}
-            print(f"step {elapsed_steps}: {info_dict}")
+            datas = [{
+                "image": [],
+                "instruction": instruction[idx],
+                "action": [],
+                "info": [],
+            } for idx in range(args.num_envs)]
+
+            elapsed_steps = 0
+            predicted_terminated, truncated = False, False
+            while not (predicted_terminated or truncated):
+                # inference
+                start_time = time.time()
+
+                raw_action, action = model.step(obs_image, instruction)
+                action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
+                # action = env.action_space.sample() # random
+
+                timers["inference"] += time.time() - start_time
+
+                # step
+                start_time = time.time()
+
+                obs, reward, terminated, truncated, info = env.step(action)
+                obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
+                info = {k: v.cpu().numpy() for k, v in info.items()}
+                elapsed_steps += 1
+                truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
+
+                timers["env.step"] += time.time() - start_time
+
+                info_dict = {k: v.mean().tolist() for k, v in info.items()}
+                print(f"step {elapsed_steps}: {info_dict}")
+
+                # save data
+                for i in range(args.num_envs):
+                    log_image = Image.fromarray(obs_image[i].cpu().numpy()).convert("RGB")
+                    log_action = action[i].cpu().numpy().tolist()
+                    log_info = {k: v[i].tolist() for k, v in info.items()}
+                    datas[i]["image"].append(log_image)
+                    datas[i]["action"].append(log_action)
+                    datas[i]["info"].append(log_info)
 
             # save data
             for i in range(args.num_envs):
-                log_image = Image.fromarray(obs_image[i].cpu().numpy()).convert("RGB")
-                log_action = action[i].cpu().numpy().tolist()
-                log_info = {k: v[i].tolist() for k, v in info.items()}
-                datas[i]["image"].append(log_image)
-                datas[i]["action"].append(log_action)
-                datas[i]["info"].append(log_info)
+                success = int(np.sum([d["success"] for d in datas[i]["info"]]) >= 6)
+                has_success |= success
+                has_fail |= not success
 
-        # save data
-        for i in range(args.num_envs):
-            if np.sum([d["success"] for d in datas[i]["info"]]) < 6:
-                continue
-            np.save(exp_dir / f"{eps_count + i:0>4d}.npy", datas[i])
+                idx = i + idx_trail
+                folder = exp_dir / f"episode_{idx_episode:0>3d}"
+                folder.mkdir(parents=True, exist_ok=True)
+                path_name = folder / f"trail_{idx:0>4d}-success_{success}.npy"
+                np.save(path_name, datas[i])
 
+            for k, v in info.items():
+                eval_metrics[k].append(v.flatten())
+                print(f"{k}: {np.mean(eval_metrics[k])}")
 
-        for k, v in info.items():
-            eval_metrics[k].append(v.flatten())
-            print(f"{k}: {np.mean(eval_metrics[k])}")
+            idx_trail += args.num_envs
 
-        eps_count += args.num_envs
-
+            if idx_trail > args.max_trails:
+                break
 
     # Print timing information
     timers["total"] = time.time() - total_start_time

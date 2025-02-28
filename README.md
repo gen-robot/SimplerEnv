@@ -40,10 +40,6 @@ pip install ninja
 pip install flash-attn --no-build-isolation
 #pip install flash-attn==2.6.1 --no-build-isolation
 #pip install flash-attn==2.5.5 --no-build-isolation
-
-# wsl
-# wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-# pip install flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 ```
 
 ### openvla train
@@ -52,6 +48,10 @@ pip install flash-attn --no-build-isolation
 git clone git@github.com:gen-robot/openvla.git && cd openvla && git checkout dev-jijia && pip install -e . && cd ..
 #git clone https://github.com/openvla/openvla.git && cd openvla && pip install -e . && cd ..
 pip install -U tyro
+
+wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+pip install flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+rm flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 ```
 
 ### grape
@@ -85,11 +85,35 @@ huggingface-cli download rail-berkeley/octo-base
 ### openvla maniskill3
 
 ```bash
+# grape
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
-  --model="openvla" --ckpt_path="openvla/openvla-7b" \
-  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1 \
+  --openvla_unnorm_key="Simpler"
+
+
+
+# eval
+ckpt_path="../openvla/checkpoints/grape_simpler_sft_dataset/steps_4000/merged_004000"
+#ckpt_path="openvla/openvla-7b"
+XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1 \
+  --openvla_unnorm_key="grape_simpler_sft_dataset"
+
+
+# dpo
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+for task in "PutSpoonOnTableClothInScene-v1" "PutCarrotOnPlateInScene-v1" "StackGreenCubeOnYellowCubeBakedTexInScene-v1" "PutEggplantInBasketScene-v1"; do
+  CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect_dpo.py \
+    --model="openvla" --ckpt_path="${ckpt_path}" -e "${task}" \
+    --openvla_unnorm_key="Simpler"
+done
   
+# PutSpoonOnTableClothInScene-v1
 # PutCarrotOnPlateInScene-v1
+# StackGreenCubeOnYellowCubeBakedTexInScene-v1
 # PutEggplantInBasketScene-v1
 ```
 
@@ -136,17 +160,21 @@ python simpler_env/main_inference.py --policy-model openvla --ckpt-path "openvla
 ### octo
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
---model="octo-small" -e PutSpoonOnTableClothInScene-v1 -s 0 --num-episodes 128 --num-envs 64
+# 42 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PutSpoonOnTableClothInScene-v1 -s 0 --num-episodes 256 --num-envs 64
 
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
---model="octo-small" -e PutCarrotOnPlateInScene-v1 -s 0 --num-episodes 256 --num-envs 64
+# 14 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PutCarrotOnPlateInScene-v1 -s 0 --num-episodes 512 --num-envs 64
 
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
---model="octo-small" -e StackGreenCubeOnYellowCubeBakedTexInScene-v1 -s 0 --num-episodes 960 --num-envs 64
+# 2 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e StackGreenCubeOnYellowCubeBakedTexInScene-v1 -s 0 --num-episodes 2880 --num-envs 144
 
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
---model="octo-small" -e PutEggplantInBasketScene-v1 -s 0 --num-episodes 128 --num-envs 64
+# 57 %
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PutEggplantInBasketScene-v1 -s 0 --num-episodes 256 --num-envs 64
 
 # PutSpoonOnTableClothInScene-v1
 # PutCarrotOnPlateInScene-v1

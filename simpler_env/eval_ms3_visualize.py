@@ -71,6 +71,9 @@ class Args:
 
     debug: bool = False
 
+    # openvla specific
+    openvla_unnorm_key: str = None
+
 def get_robot_control_mode(robot: str):
     if "google_robot_static" in robot:
         return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
@@ -111,8 +114,9 @@ def main():
         from simpler_env.policies.rt1.rt1_model import RT1Inference
         model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
     elif args.model == "openvla":
-        from simpler_env.policies.openvla.openvla_model import OpenVLAInference
-        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
+        from simpler_env.policies.openvla.openvla_model_ms3 import OpenVLAInference
+        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.,
+                                 unnorm_key=args.openvla_unnorm_key)
     elif args.model == "cogact":
         from simpler_env.policies.sim_cogact import CogACTInference
         model = CogACTInference(
@@ -128,7 +132,8 @@ def main():
     else:
         model = None
 
-    model_name = args.model if args.model is not None else "random"
+    # model_name = args.model if args.model is not None else "random"
+    model_name = Path(args.ckpt_path).name if args.ckpt_path else "random"
     exp_dir = os.path.join(args.record_dir, f"real2sim_eval/{model_name}_{args.env_id}")
     Path(exp_dir).mkdir(parents=True, exist_ok=True)
 
@@ -160,20 +165,7 @@ def main():
             if model is not None:
                 start_time = time.time()
 
-                # my change
-                if args.model == "openvla":
-                    image = images[-1].to(torch.uint8).cpu().numpy()
-                    assert len(image.shape) == 4
-                    assert image.shape[0] == 1
-                    image = image[0]
-                else:
-                    image = images[-1]
-
-                raw_action, action = model.step(image, instruction)
-
-                # my change
-                if args.model == "openvla":
-                   action = {k: torch.tensor(v.reshape(1, -1)) for k, v in action.items()}
+                raw_action, action = model.step(images[-1], instruction)
 
                 action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
                 timers["inference"] += time.time() - start_time
