@@ -52,7 +52,7 @@ if __name__ == "__main__":
             )
     elif args.policy_model == "openvla":
         assert args.ckpt_path is not None
-        from simpler_env.policies.openvla.openvla_model import OpenVLAInference
+        from simpler_env.policies.openvla.openvla_model_ms3 import OpenVLAInference
         model = OpenVLAInference(
             saved_model_path=args.ckpt_path,
             policy_setup=args.policy_setup,

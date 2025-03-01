@@ -79,6 +79,9 @@ ENVIRONMENT_MAP = {
 }
 
 
+import os
+SIMPLER_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def make(task_name):
     """Creates simulated eval environment from task name."""
     assert task_name in ENVIRONMENTS, f"Task {task_name} is not supported. Environments: \n {ENVIRONMENTS}"

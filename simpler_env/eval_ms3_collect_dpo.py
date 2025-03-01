@@ -76,7 +76,7 @@ class Args:
     debug: bool = False
 
     # openvla specific
-    openvla_unnorm_key: str = None
+    openvla_unnorm_key: Optional[str] = None
 
 
 def get_robot_control_mode(robot: str):

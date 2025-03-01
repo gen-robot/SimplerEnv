@@ -53,11 +53,13 @@ class Args:
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
-    model: Optional[str] = 'rdt' # 'rt-1x'   rdt   octo-base   octo-small
+    model: Optional[str] = None # 'rt-1x' rdt octo-base octo-small
     """The model to evaluate on the given environment. Can be one of octo-base, octo-small, rt-1x. If not given, random actions are sampled."""
 
     ckpt_path: str = ""
     """Checkpoint path for models. Used for RT and RDT models"""
+
+    policy_setup: str = "widowx_bridge" # widowx_bridge, franka
 
     seed: Annotated[int, tyro.conf.arg(aliases=["-s"])] = 0
     """Seed the model and environment. Default seed is 0"""
@@ -74,7 +76,7 @@ class Args:
     debug: bool = False
 
     # openvla specific
-    openvla_unnorm_key: str = None
+    openvla_unnorm_key: Optional[str] = None
 
 def get_robot_control_mode(robot: str):
     if "google_robot_static" in robot:
@@ -92,7 +94,7 @@ def main():
 
     # Setup up the policy inference model
     print(f"model is {args.model}")
-    policy_setup = "widowx_bridge"
+    policy_setup = args.policy_setup
 
     env: BaseEnv = gym.make(
         args.env_id,
@@ -100,7 +102,7 @@ def main():
         sensor_configs={"shader_pack": args.shader},
         obs_mode="rgb+segmentation",
         control_mode=get_robot_control_mode(policy_setup), # "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos", # In BaseBridgeEnv and WidowX250SBridgeDatasetFlatTable
-        sim_backend='gpu' if env.device.type == 'cuda' else 'cpu',
+        sim_backend = 'gpu',
         sim_config={
             "sim_freq": 500,
             "control_freq": 5,
@@ -143,7 +145,7 @@ def main():
         from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
         model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
     elif args.model == "rdt":
-        from third_party.rdt.constants import *
+        from third_party.rdt.constants import RDT1B_FT_PATH, RDT1B_PATH
         from simpler_env.policies.rdt.rdt_model import RDTInference
         model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
             env = env, enable_eef_obs = True, enable_qvel_obs = False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
