@@ -102,7 +102,7 @@ def main():
         num_envs=args.num_envs,
         sensor_configs={"shader_pack": args.shader},
         obs_mode="rgb+segmentation",
-        control_mode=get_robot_control_mode(policy_setup), # "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos", # In BaseBridgeEnv and WidowX250SBridgeDatasetFlatTable
+        control_mode=get_robot_control_mode(policy_setup),
         sim_backend = 'gpu',
         sim_config={
             "sim_freq": 500,
