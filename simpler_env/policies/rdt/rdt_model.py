@@ -74,12 +74,11 @@ class RDTInference(RDTActor):
             )
         # single arm in maniskill3
         elif self.robot_name in ['widowx_bridge']:
-            ee_pose = self.transfer_qpos_2_ee_pose(obs['agent']['qpos'][...,:6], world_frame=False) # root frame
-            ee_pose_xyz = ee_pose.p.squeeze()
-            ee_rot_matrix = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]]).as_matrix()[np.newaxis,:,:]
-            ee_pose_rot_angle = torch.from_numpy(
-                                        rotation_matrix_to_ortho6d(tf.convert_to_tensor(ee_rot_matrix)).numpy()
-                                    )
+            ee_pose = self.transfer_qpos_2_ee_pose(obs['agent']['qpos'][...,:6], world_frame=False)[0] # root frame
+            device = ee_pose.device
+            ee_pose_xyz = ee_pose.p.squeeze().to(device)
+            ee_rot_matrix = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]].cpu().numpy()).as_matrix()[np.newaxis,:,:]
+            ee_pose_rot_angle = torch.from_numpy(rotation_matrix_to_ortho6d(tf.convert_to_tensor(ee_rot_matrix)).numpy()).to(device)
             self.obs_window.append(
                 {
                     # arm_joint_pos:6, gripper_joint_0_pos:1, eef_pos:3,eef_angle:6 -> 16 dimensional
@@ -130,12 +129,12 @@ class RDTInference(RDTActor):
             action = {}
             if delta:
                 last_obs_state = {}
-                last_obs_state['qpos'] = self.obs_window[-1]["qpos"].numpy()
-                last_obs_state['eef_pos_rot6d'] = self.obs_window[-1]["eef_pos_rot6d"].numpy()
+                last_obs_state['qpos'] = self.obs_window[-1]["qpos"].cpu().numpy()
+                last_obs_state['eef_pos_rot6d'] = self.obs_window[-1]["eef_pos_rot6d"].cpu().numpy()
                 if joint_fk:
-                    ee_pose = self.transfer_qpos_2_ee_pose(qpos_action[0,:6], world_frame=False)
-                    action["world_vector"] = (ee_pose.p.squeeze().numpy() - last_obs_state['eef_pos_rot6d'][:3]) * self.action_scale
-                    matrix_new = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]])
+                    ee_pose = self.transfer_qpos_2_ee_pose(qpos_action[0,:6], world_frame=False)[0]
+                    action["world_vector"] = (ee_pose.p.squeeze().cpu().numpy() - last_obs_state['eef_pos_rot6d'][:3]) * self.action_scale
+                    matrix_new = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]].cpu().numpy())
                     matrix_old = R.from_matrix(ortho6d_to_rotation_matrix(
                         tf.convert_to_tensor(last_obs_state['eef_pos_rot6d'][3:], dtype=tf.float32)
                         ).numpy())
@@ -157,9 +156,9 @@ class RDTInference(RDTActor):
                 self.env.unwrapped.agent.controller.controllers['arm'].config.use_delta = False
                 self.env.unwrapped.agent.controller.controllers['arm'].config.frame = 'root_translation:root_aligned_body_rotation'
                 if joint_fk:
-                    ee_pose = self.transfer_qpos_2_ee_pose(qpos_action[0,:6], world_frame=False) # 在 arm_root 坐标系下
-                    action["world_vector"] = ee_pose.p.squeeze().numpy() * self.action_scale
-                    matrix = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]])
+                    ee_pose = self.transfer_qpos_2_ee_pose(qpos_action[0,:6], world_frame=False)[0] # 在 arm_root 坐标系下
+                    action["world_vector"] = ee_pose.p.squeeze().cpu().numpy() * self.action_scale
+                    matrix = R.from_quat(ee_pose.q.squeeze()[[1,2,3,0]].cpu().numpy())
                     action['rot_axangle'] = matrix.as_euler('xyz', degrees = False) * self.action_scale # radian 
                     action['gripper'] = qpos_action[0,6:7]
                     action["terminate_episode"] = np.array([0.0])
@@ -280,7 +279,7 @@ class RDTInference(RDTActor):
         qpos = torch.as_tensor(qpos)
         qpos_fk = torch.zeros(qpos.shape[0], env.agent.robot.max_dof, # 8
                             dtype=qpos.dtype, device=env.agent.robot.device)
-        qpos_fk[:, get_active_joint_indices(env.agent.robot, env.agent.arm_joint_names)] = qpos
+        qpos_fk[:, get_active_joint_indices(env.agent.robot, env.agent.arm_joint_names)] = qpos.to(device=env.agent.robot.device)
         ee_pose = kinematics.compute_fk(qpos_fk)
 
         if world_frame: 

@@ -23,6 +23,7 @@ from mani_skill.envs.sapien_env import BaseEnv
 import tyro
 from dataclasses import dataclass
 from pathlib import Path
+from simpler_env import SIMPLER_ROOT_DIR
 
 
 @dataclass
@@ -50,7 +51,7 @@ class Args:
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
-    record_dir: str = "videos"
+    record_dir: str = os.path.join(SIMPLER_ROOT_DIR,"videos")
     """The directory to save videos and results"""
 
     model: Optional[str] = None # 'rt-1x' rdt octo-base octo-small
@@ -199,7 +200,7 @@ def main():
                     raw_action, action = model.step(obs, instruction[0])
                     # # x- > front, y -> left, z -> up, rot_1, rot_2, rot_3, gripper[-1 -> close, 1 -> open] -> 7 dimension 
                     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
-                                        torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32)
+                                        torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
                     # action = torch.cat([torch.as_tensor([0,0,0]), torch.as_tensor([0,0,0]),
                     #                     torch.as_tensor([0.5])], dim=0).to(dtype=torch.float32)
 
