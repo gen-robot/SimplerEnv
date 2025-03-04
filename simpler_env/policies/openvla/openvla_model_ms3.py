@@ -28,6 +28,9 @@ class OpenVLAInference:
         elif policy_setup == "google_robot":
             unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 15
+        elif "panda" in policy_setup or "franka" in policy_setup: # TODO
+            unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
+            self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(
                 f"Policy setup {policy_setup} not supported for octo models. The other datasets can be found in the huggingface config.json file."
@@ -118,7 +121,7 @@ class OpenVLAInference:
         roll, pitch, yaw = action_rotation_delta
         action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
         action_rotation_axangle = action_rotation_ax * action_rotation_angle
-        action["rot_axangle"] = action_rotation_axangle * self.action_scale
+        action["rot_axangle"] = action_rotation_delta # action_rotation_axangle * self.action_scale
 
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
@@ -144,6 +147,8 @@ class OpenVLAInference:
             action["gripper"] = relative_gripper_action
 
         elif self.policy_setup == "widowx_bridge":
+            action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
+        elif self.policy_setup == "panda":
             action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
 
         action["terminate_episode"] = np.array([0.0])

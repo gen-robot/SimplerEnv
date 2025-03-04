@@ -1,0 +1,15 @@
+torchrun --standalone --nnodes=1 --nproc-per-node 4 simpler_env/runner/finetune_grape.py \
+  --vla_path "openvla/openvla-7b" \
+  --dataset_name "put carrot on plate" \
+  --chosen_traj_dir "results" \
+  --rejected_traj_dir "results" \
+  --run_root_dir "results/grape/root" \
+  --adapter_tmp_dir "results/grape/adapter" \
+  --lora_rank 32 \
+  --batch_size 1 \
+  --grad_accumulation_steps 1 \
+  --learning_rate 2e-5 \
+  --image_aug False \
+  --wandb_project "rlvla" \
+  --wandb_entity "hosnls" \
+  --save_steps 1000

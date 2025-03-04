@@ -11,13 +11,13 @@ import tree
 from mani_skill.utils import common
 from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
-
+from mani_skill.utils.structs import Pose
 signal.signal(signal.SIGINT, signal.SIG_DFL)  # allow ctrl+c
 from simpler_env.utils.env.observation_utils import get_image_from_maniskill3_obs_dict
 
 import gymnasium as gym
 import numpy as np
-from sapien.core import Pose
+
 from transforms3d.euler import euler2quat
 from mani_skill.envs.sapien_env import BaseEnv
 import tyro
@@ -48,7 +48,7 @@ class Args:
     which runs faster enabling faster large-scale evaluations. Note that the overall behavior of the simulation
     will be slightly different between CPU and GPU backends."""
 
-    num_episodes: int = 100
+    num_episodes: int = 60
     """Number of episodes to run and record evaluation metrics over"""
 
     record_dir: str = os.path.join(SIMPLER_ROOT_DIR,"videos")
@@ -68,6 +68,8 @@ class Args:
     reset_by_episode_id: bool = True
     """Whether to reset by fixed episode ids instead of random sampling initial states."""
 
+    reder_mode = "rgb_array"
+
     info_on_video: bool = False
     """Whether to write info text onto the video"""
 
@@ -84,6 +86,8 @@ def get_robot_control_mode(robot: str):
         return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
     elif "widowx" in robot:
         return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
+    elif "panda" in robot or "franka" in robot:
+        return "pd_ee_delta_pose"
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
 
@@ -108,7 +112,8 @@ def main():
             "sim_freq": 500,
             "control_freq": 5,
         },
-        max_episode_steps=100,
+        max_episode_steps= args.num_episodes,
+        render_mode = args.reder_mode,
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
@@ -148,9 +153,10 @@ def main():
     elif args.model == "rdt":
         from third_party.rdt.constants import RDT1B_FT_PATH, RDT1B_PATH
         from simpler_env.policies.rdt.rdt_model import RDTInference
-        model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
-            env = env, enable_eef_obs = True, enable_qvel_obs = False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
-        )
+        # model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
+        #     env = env, enable_eef_obs = True, enable_qvel_obs = False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
+        # )
+        model = None 
     else:
         model = None
         raise ValueError(f"Model {args.model} does not exist / is not supported.")
@@ -192,21 +198,23 @@ def main():
         while not (predicted_terminated or truncated):
             if model is not None:
                 start_time = time.time()
-
-                if not args.model == 'rdt':
-                    raw_action, action = model.step(images[-1], instruction[0]) # 0?
-                    action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1) # 0 ?
-                else:
-                    raw_action, action = model.step(obs, instruction[0])
+                
+                if args.model == 'rdt':
+                    # raw_action, action = model.step(obs, instruction[0])
                     # # x- > front, y -> left, z -> up, rot_1, rot_2, rot_3, gripper[-1 -> close, 1 -> open] -> 7 dimension 
-                    action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
-                                        torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
-                    # action = torch.cat([torch.as_tensor([0,0,0]), torch.as_tensor([0,0,0]),
-                    #                     torch.as_tensor([0.5])], dim=0).to(dtype=torch.float32)
+                    # action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
+                    #                     torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
+                    action = torch.cat([torch.as_tensor([0,0,0]), torch.as_tensor([0,0,0]),
+                                        torch.as_tensor([0.5])], dim=0).to(dtype=torch.float32)
+                else:
+                    raw_action, action = model.step(images[-1], instruction)
+                    action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1) # 0 ?
 
                 timers["inference"] += time.time() - start_time
             else:
                 action = env.action_space.sample()
+                # action = torch.cat([torch.as_tensor([0,0,0]), torch.as_tensor([0,0,0]),
+                #                         torch.as_tensor([0.5])], dim=0).to(dtype=torch.float32)
 
             if elapsed_steps > 0:
                 if args.save_video and args.info_on_video:
