@@ -87,27 +87,30 @@ huggingface-cli download rail-berkeley/octo-base
 ```bash
 # grape
 ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
+CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
   --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1 \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 20 --num-envs 20 --save-video=true \
   --openvla_unnorm_key="Simpler"
 
+1. same seed different sample
+2. dpo train upload to wq1
 
 
 # eval
 ckpt_path="../openvla/checkpoints/grape_simpler_sft_dataset/steps_4000/merged_004000"
 #ckpt_path="openvla/openvla-7b"
-XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
+CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
   --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 1 \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 50 --save-data=true \
   --openvla_unnorm_key="grape_simpler_sft_dataset"
 
 
 # dpo
+# "PutSpoonOnTableClothInScene-v1" 
 ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
-for task in "PutSpoonOnTableClothInScene-v1" "PutCarrotOnPlateInScene-v1" "StackGreenCubeOnYellowCubeBakedTexInScene-v1" "PutEggplantInBasketScene-v1"; do
+for task in "StackGreenCubeOnYellowCubeBakedTexInScene-v1" "PutEggplantInBasketScene-v1"; do
   CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect_dpo.py \
-    --model="openvla" --ckpt_path="${ckpt_path}" -e "${task}" \
+    --model="openvla" --ckpt_path="${ckpt_path}" -e "${task}" --num-envs 4 \
     --openvla_unnorm_key="Simpler"
 done
   
@@ -115,6 +118,8 @@ done
 # PutCarrotOnPlateInScene-v1
 # StackGreenCubeOnYellowCubeBakedTexInScene-v1
 # PutEggplantInBasketScene-v1
+
+flameprof --format=svg --threshold=0.1 images/perf/perf.bin > images/perf/perf.svg
 ```
 
 ### openvla maniskill2
@@ -187,11 +192,12 @@ tfds build --overwrite
 ## train
 
 ```bash
-torchrun --standalone --nnodes=1 --nproc-per-node 4 simpler_env/runner/finetune_grape.py \
+CUDA_VISIBLE_DEVICES=7 \
+torchrun --standalone --nnodes=1 --nproc-per-node 1 vla-scripts/finetune_grape.py \
   --vla_path "openvla/openvla-7b" \
-  --dataset_name "put carrot on plate" \
-  --chosen_traj_dir "results" \
-  --rejected_traj_dir "results" \
+  --dataset_s_name "grape_simpler_dpos_dataset" \
+  --dataset_f_name "grape_simpler_dpof_dataset" \
+  --traj_dir "../datasets" \
   --run_root_dir "results/grape/root" \
   --adapter_tmp_dir "results/grape/adapter" \
   --lora_rank 32 \

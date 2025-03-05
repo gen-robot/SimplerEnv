@@ -46,10 +46,13 @@ class Args:
     num_episodes: int = 23
     """Number of episodes to run and record evaluation metrics over"""
 
+    max_episode_len: int = 100
+    """Max episode length"""
+
     num_trails: int = 5
     """Number of trails per episode"""
 
-    max_trails: int = 30
+    max_trails: int = 50
     """Maximum number of trails per episode"""
 
     record_dir: str = "videos"
@@ -107,7 +110,7 @@ def main():
             "sim_freq": 500,
             "control_freq": 5,
         },
-        max_episode_steps=100,
+        max_episode_steps=args.max_episode_len,
         sensor_configs={"shader_pack": args.shader},
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
@@ -156,22 +159,28 @@ def main():
         while not (has_success and has_fail) or idx_trail < args.num_trails:
             seed = args.seed + idx_episode * args.num_trails + idx_trail
 
+            # data dump
+            datas = [{
+                "image": [],  # obs_t: [0, T-1]
+                "instruction": "",
+                "action": [],  # a_t: [0, T-1]
+                "info": [],  # info after executing a_t: [1, T]
+            } for idx in range(args.num_envs)]
+
+            # env and policy reset
             env_reset_options = {
                 "episode_id": torch.tensor([idx_episode] * args.num_envs),  # same episode id in one episode
             }
-            obs, _ = env.reset(seed=seed, options=env_reset_options)
+            obs, info = env.reset(seed=seed, options=env_reset_options)
             obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
             instruction = env.unwrapped.get_language_instruction()
             model.reset(instruction)
 
             print("instruction[0]:", instruction[0])
 
-            datas = [{
-                "image": [],
-                "instruction": instruction[idx],
-                "action": [],
-                "info": [],
-            } for idx in range(args.num_envs)]
+            # data dump: instruction
+            for idx in range(args.num_envs):
+                datas[idx]["instruction"] = instruction[idx]
 
             elapsed_steps = 0
             predicted_terminated, truncated = False, False
@@ -189,24 +198,33 @@ def main():
                 start_time = time.time()
 
                 obs, reward, terminated, truncated, info = env.step(action)
-                obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
+                obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
                 info = {k: v.cpu().numpy() for k, v in info.items()}
-                elapsed_steps += 1
                 truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
 
                 timers["env.step"] += time.time() - start_time
 
+                # print info
                 info_dict = {k: v.mean().tolist() for k, v in info.items()}
                 print(f"step {elapsed_steps}: {info_dict}")
 
-                # save data
+                # data dump: image, action, info
                 for i in range(args.num_envs):
-                    log_image = Image.fromarray(obs_image[i].cpu().numpy()).convert("RGB")
+                    log_image = obs_image[i].cpu().numpy()
                     log_action = action[i].cpu().numpy().tolist()
                     log_info = {k: v[i].tolist() for k, v in info.items()}
                     datas[i]["image"].append(log_image)
                     datas[i]["action"].append(log_action)
                     datas[i]["info"].append(log_info)
+
+                # add count
+                obs_image = obs_image_new
+                elapsed_steps += 1
+
+            # data dump: last image
+            for i in range(args.num_envs):
+                log_image = obs_image[i].cpu().numpy()
+                datas[i]["image"].append(log_image)
 
             # save data
             for i in range(args.num_envs):
@@ -218,8 +236,12 @@ def main():
                 folder = exp_dir / f"episode_{idx_episode:0>3d}"
                 folder.mkdir(parents=True, exist_ok=True)
                 path_name = folder / f"trail_{idx:0>4d}-success_{success}.npy"
-                np.save(path_name, datas[i])
 
+                res = datas[i].copy()
+                res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
+                np.save(path_name, res)
+
+            # metrics log and print
             for k, v in info.items():
                 eval_metrics[k].append(v.flatten())
                 print(f"{k}: {np.mean(eval_metrics[k])}")
