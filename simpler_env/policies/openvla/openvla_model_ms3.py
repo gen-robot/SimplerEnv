@@ -29,7 +29,7 @@ class OpenVLAInference:
             unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 15
         elif "panda" in policy_setup or "franka" in policy_setup: # TODO
-            unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
+            unnorm_key = "bridge_orig" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(
@@ -121,7 +121,7 @@ class OpenVLAInference:
         roll, pitch, yaw = action_rotation_delta
         action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
         action_rotation_axangle = action_rotation_ax * action_rotation_angle
-        action["rot_axangle"] = action_rotation_delta # action_rotation_axangle * self.action_scale
+        action["rot_axangle"] = action_rotation_axangle * self.action_scale # action_rotation_delta * self.action_scale
 
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
