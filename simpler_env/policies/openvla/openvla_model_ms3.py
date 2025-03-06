@@ -7,6 +7,7 @@ from transformers import AutoModelForVision2Seq, AutoProcessor
 from PIL import Image
 import torch
 import cv2 as cv
+from typing import List
 
 
 class OpenVLAInference:
@@ -77,86 +78,103 @@ class OpenVLAInference:
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """
         Input:
-            image: np.ndarray of shape (H, W, 3), uint8
-            task_description: Optional[str], task description; if different from previous task description, policy state is reset
+            image: np.ndarray of shape (B, H, W, 3), uint8, where B is the batch size
+            task_description: Optional[str], list of task descriptions; if different from previous task descriptions, policy state is reset
         Output:
-            raw_action: dict; raw policy action output
-            action: dict; processed action to be sent to the maniskill2 environment, with the following keys:
-                - 'world_vector': np.ndarray of shape (3,), xyz translation of robot end-effector
-                - 'rot_axangle': np.ndarray of shape (3,), axis-angle representation of end-effector rotation
-                - 'gripper': np.ndarray of shape (1,), gripper action
-                - 'terminate_episode': np.ndarray of shape (1,), 1 if episode should be terminated, 0 otherwise
+            raw_actions: dict; raw policy action output for all scenes
+            actions: dict; processed actions to be sent to the maniskill2(axangle)/maniskill3(eulerangle) environment, with the following keys:
+                - 'world_vector': np.ndarray of shape (B, 3), xyz translation of robot end-effector
+                - 'rot_axangle': np.ndarray of shape (B, 3), axis-angle representation of end-effector rotation
+                - 'gripper': np.ndarray of shape (B, 1), gripper action
+                - 'terminate_episode': np.ndarray of shape (B, 1), 1 if episode should be terminated, 0 otherwise
         """
-
-        # mychange
-        image = image.cpu().numpy()[0]
+        # Ensure input is a batch
+        image = image.cpu().numpy()
+        assert len(image.shape) == 4, "Input image must be a batch of shape (B, H, W, 3)"
+        batch_size = image.shape[0]
         assert isinstance(task_description, list)
         task_description = task_description[0]
 
-        if task_description is not None:
+        # Reset policy state if task_description changes
+        if task_description is not None: # now only support the same description for all enviroments
             if task_description != self.task_description:
                 self.reset(task_description)
 
-        assert len(image.shape) == 3
-        assert image.dtype == np.uint8
-        image_post = self._resize_image(image)
-        image_post = Image.fromarray(image_post)
-        prompt = task_description
+        # Process images and task descriptions
+        raw_actions = []
+        actions = []
 
-        # predict action (7-dof; un-normalize for bridgev2)
-        inputs = self.processor(prompt, image_post).to("cuda:0", dtype=torch.bfloat16)
-        raw_actions = self.vla.predict_action(**inputs, unnorm_key=self.unnorm_key, do_sample=True)[None]
-        # print(f"raw action: {raw_actions.shape}") # (1, 7)
+        for i in range(batch_size):
+            # Process image
+            img = image[i]
+            assert len(img.shape) == 3 and img.dtype == np.uint8, "Each image must be of shape (H, W, 3) and dtype uint8"
+            img_post = self._resize_image(img)
+            img_post = Image.fromarray(img_post)
 
-        raw_action = {
-            "world_vector": np.array(raw_actions[0, :3]),
-            "rotation_delta": np.array(raw_actions[0, 3:6]),
-            "open_gripper": np.array(raw_actions[0, 6:7]),  # range [0, 1]; 1 = open; 0 = close
-        }
+            # Process task description
+            prompt = task_description
 
-        # process raw_action to obtain the action to be sent to the maniskill2 environment
-        action = {}
-        action["world_vector"] = raw_action["world_vector"] * self.action_scale
-        action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
-        roll, pitch, yaw = action_rotation_delta
-        action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
-        action_rotation_axangle = action_rotation_ax * action_rotation_angle
-        action["rot_axangle"] = action_rotation_axangle * self.action_scale # action_rotation_delta * self.action_scale
+            # Predict action (7-dof; un-normalize for bridgev2)
+            inputs = self.processor(prompt, img_post).to("cuda:0", dtype=torch.bfloat16)
+            raw_action = self.vla.predict_action(**inputs, unnorm_key=self.unnorm_key, do_sample=True)[None]
+            # print(f"raw action: {raw_actions.shape}") # (1, 7)
 
-        if self.policy_setup == "google_robot":
-            current_gripper_action = raw_action["open_gripper"]
-            if self.previous_gripper_action is None:
-                relative_gripper_action = np.array([0])
-            else:
-                relative_gripper_action = self.previous_gripper_action - current_gripper_action
-            self.previous_gripper_action = current_gripper_action
+            raw_action = {
+                "world_vector": np.array(raw_action[0, :3]),
+                "rotation_delta": np.array(raw_action[0, 3:6]),
+                "open_gripper": np.array(raw_action[0, 6:7]),  # range [0, 1]; 1 = open; 0 = close
+            }
+            # Store raw action
+            raw_actions.append(raw_action)
+            # Process raw_action to obtain the action to be sent to the maniskill2 / maniskill3 environment
+            action = {}
+            action["world_vector"] = raw_action["world_vector"] * self.action_scale
+            action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
+            roll, pitch, yaw = action_rotation_delta
+            action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
+            action_rotation_axangle = action_rotation_ax * action_rotation_angle
+            action["rot_axangle"] = action_rotation_axangle * self.action_scale # action_rotation_delta * self.action_scale
 
-            if np.abs(relative_gripper_action) > 0.5 and (not self.sticky_action_is_on):
-                self.sticky_action_is_on = True
-                self.sticky_gripper_action = relative_gripper_action
+            # Gripper action logic. Note that the sticky gripper logic is only supported for the google_robot policy setup.
+            # sticky_gripper_num_repeat not support for more than one simulation environment; otherwise, it will cause chaos.
+            if self.policy_setup == "google_robot":
+                current_gripper_action = raw_action["open_gripper"]
+                if self.previous_gripper_action is None:
+                    relative_gripper_action = np.array([0])
+                else:
+                    relative_gripper_action = self.previous_gripper_action - current_gripper_action
+                self.previous_gripper_action = current_gripper_action
 
-            if self.sticky_action_is_on:
-                self.gripper_action_repeat += 1
-                relative_gripper_action = self.sticky_gripper_action
+                if np.abs(relative_gripper_action) > 0.5 and (not self.sticky_action_is_on):
+                    self.sticky_action_is_on = True
+                    self.sticky_gripper_action = relative_gripper_action
 
-            if self.gripper_action_repeat == self.sticky_gripper_num_repeat:
-                self.sticky_action_is_on = False
-                self.gripper_action_repeat = 0
-                self.sticky_gripper_action = 0.0
+                if self.sticky_action_is_on:
+                    self.gripper_action_repeat += 1
+                    relative_gripper_action = self.sticky_gripper_action
 
-            action["gripper"] = relative_gripper_action
+                if self.gripper_action_repeat == self.sticky_gripper_num_repeat:
+                    self.sticky_action_is_on = False
+                    self.gripper_action_repeat = 0
+                    self.sticky_gripper_action = 0.0
 
-        elif self.policy_setup == "widowx_bridge":
-            action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
-        elif self.policy_setup == "panda":
-            action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
+                action["gripper"] = relative_gripper_action
 
-        action["terminate_episode"] = np.array([0.0])
+            elif self.policy_setup == "widowx_bridge":
+                action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
+            elif self.policy_setup == "panda":
+                action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
 
-        # mychange
-        action = {k: torch.tensor(v.reshape(1, -1)) for k, v in action.items()}
+            action["terminate_episode"] = np.array([0.0])
 
-        return raw_action, action
+            # Store processed action
+            actions.append(action)
+
+        # Convert lists to batched outputs
+        raw_actions = {k: torch.stack([torch.from_numpy(ra[k]) for ra in raw_actions]) for k in raw_actions[0].keys()}
+        actions = {k: torch.stack([torch.from_numpy(a[k]) for a in actions]) for k in actions[0].keys()}
+
+        return raw_actions, actions
 
     def _resize_image(self, image: np.ndarray) -> np.ndarray:
         # print(image.shape) # (480, 640, 3)

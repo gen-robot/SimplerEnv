@@ -51,6 +51,9 @@ class Args:
     num_episodes: int = 60
     """Number of episodes to run and record evaluation metrics over"""
 
+    max_episode_steps: int = 100
+    """Max number of steps for each episode to run"""
+
     record_dir: str = os.path.join(SIMPLER_ROOT_DIR,"videos")
     """The directory to save videos and results"""
 
@@ -112,7 +115,7 @@ def main():
             "sim_freq": 500,
             "control_freq": 5,
         },
-        max_episode_steps= args.num_episodes,
+        max_episode_steps = args.max_episode_steps,
         render_mode = args.reder_mode,
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
