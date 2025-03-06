@@ -46,6 +46,9 @@ class Args:
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
+    max_episode_len: int = 100
+    """Max episode length"""
+
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
@@ -64,8 +67,11 @@ class Args:
     info_on_video: bool = False
     """Whether to write info text onto the video"""
 
-    save_video: bool = True
+    save_video: bool = False
     """Whether to save videos"""
+
+    save_data: bool = False
+    """Whether to save collect data"""
 
     debug: bool = False
 
@@ -101,7 +107,7 @@ def main():
             "sim_freq": 500,
             "control_freq": 5,
         },
-        max_episode_steps=100,
+        max_episode_steps=args.max_episode_len,
         sensor_configs={"shader_pack": args.shader},
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
@@ -131,10 +137,6 @@ def main():
     else:
         raise NotImplementedError
 
-    model_name = Path(args.ckpt_path).name if args.ckpt_path else "random"
-    exp_dir = Path(args.record_dir) / f"collect/{model_name}_{args.env_id}"
-    exp_dir.mkdir(parents=True, exist_ok=True)
-
     eval_metrics = defaultdict(list)
     eps_count = 0
 
@@ -147,23 +149,28 @@ def main():
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
 
+        # data dump
+        datas = [{
+            "image": [],  # obs_t: [0, T-1]
+            "instruction": "",
+            "action": [],  # a_t: [0, T-1]
+            "info": [],  # info after executing a_t: [1, T]
+        } for idx in range(args.num_envs)]
+
+        # env and policy reset
         env_reset_options = {
             "episode_id": torch.arange(args.num_envs) + eps_count
         }
-        obs, _ = env.reset(seed=seed, options=env_reset_options)
+        obs, info = env.reset(seed=seed, options=env_reset_options)
         obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
         instruction = env.unwrapped.get_language_instruction()
         model.reset(instruction)
 
         print("instruction[0]:", instruction[0])
 
-        datas = [{
-            "image": [],
-            "instruction": instruction[idx],
-            "action": [],
-            "info": [],
-
-        } for idx in range(args.num_envs)]
+        # data dump: instruction
+        for idx in range(args.num_envs):
+            datas[idx]["instruction"] = instruction[idx]
 
         elapsed_steps = 0
         predicted_terminated, truncated = False, False
@@ -179,40 +186,72 @@ def main():
 
             # step
             start_time = time.time()
-
             obs, reward, terminated, truncated, info = env.step(action)
-            obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
+            obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
             info = {k: v.cpu().numpy() for k, v in info.items()}
-            elapsed_steps += 1
             truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
 
             timers["env.step"] += time.time() - start_time
 
+            # print info
             info_dict = {k: v.mean().tolist() for k, v in info.items()}
             print(f"step {elapsed_steps}: {info_dict}")
 
-            # save data
+            # data dump: image, action, info
             for i in range(args.num_envs):
-                log_image = Image.fromarray(obs_image[i].cpu().numpy()).convert("RGB")
+                log_image = obs_image[i].cpu().numpy()
                 log_action = action[i].cpu().numpy().tolist()
                 log_info = {k: v[i].tolist() for k, v in info.items()}
                 datas[i]["image"].append(log_image)
                 datas[i]["action"].append(log_action)
                 datas[i]["info"].append(log_info)
 
-        # save data
+            # add count
+            obs_image = obs_image_new
+            elapsed_steps += 1
+
+        # data dump: last image
         for i in range(args.num_envs):
-            if np.sum([d["success"] for d in datas[i]["info"]]) < 6:
-                continue
-            np.save(exp_dir / f"{eps_count + i:0>4d}.npy", datas[i])
+            log_image = obs_image[i].cpu().numpy()
+            datas[i]["image"].append(log_image)
+
+        # save video
+        if args.save_video:
+            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}_{args.env_id}"
+            exp_dir.mkdir(parents=True, exist_ok=True)
+
+            for i in range(args.num_envs):
+                images = datas[i]["image"]
+                infos = datas[i]["info"]
+                assert len(images) == len(infos) + 1
+
+                if args.info_on_video:
+                    for j in range(len(infos)):
+                        images[j + 1] = visualization.put_info_on_image(images[j + 1], infos[j])
+
+                success = np.sum([d["success"] for d in infos]) >= 6
+                images_to_video(images, str(exp_dir), f"video_{eps_count + i}_success={success}",
+                                fps=10, verbose=True)
+
+        # save data
+        if args.save_data:
+            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}_{args.env_id}"
+            exp_dir.mkdir(parents=True, exist_ok=True)
+
+            for i in range(args.num_envs):
+                if np.sum([d["success"] for d in datas[i]["info"]]) < 6:
+                    continue
+                res = datas[i].copy()
+                res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
+                np.save(exp_dir / f"data_{eps_count + i:0>4d}.npy", res)
 
 
+        # metrics log and print
         for k, v in info.items():
             eval_metrics[k].append(v.flatten())
             print(f"{k}: {np.mean(eval_metrics[k])}")
 
         eps_count += args.num_envs
-
 
     # Print timing information
     timers["total"] = time.time() - total_start_time
@@ -221,6 +260,14 @@ def main():
     print("\nTiming Info:")
     for key, value in timers.items():
         print(f"{key}: {value:.2f} seconds")
+
+    mean_metrics = {k: np.mean(v) for k, v in eval_metrics.items()}
+    mean_metrics["total_episodes"] = eps_count
+    mean_metrics["total_steos"] = eps_count * args.max_episode_len
+    mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
+
+    metrics_path = exp_dir / f"eval_metrics.json"
+    json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
 
 
 if __name__ == "__main__":

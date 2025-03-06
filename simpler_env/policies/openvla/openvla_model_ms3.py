@@ -8,6 +8,9 @@ from PIL import Image
 import torch
 import cv2 as cv
 from typing import List
+from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
+from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
+from prismatic.extern.hf.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
 
 
 class OpenVLAInference:
