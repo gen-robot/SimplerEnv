@@ -162,7 +162,7 @@ def main():
             "episode_id": torch.arange(args.num_envs) + eps_count
         }
         obs, info = env.reset(seed=seed, options=env_reset_options)
-        obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
+        obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8) # on cuda:0
         instruction = env.unwrapped.get_language_instruction()
         model.reset(instruction)
 
@@ -248,7 +248,9 @@ def main():
 
         # metrics log and print
         for k, v in info.items():
-            eval_metrics[k].append(v.flatten())
+            for i in range(args.num_envs):
+                info_i = np.array([inf[k] for inf in datas[i]["info"]]).sum() >= 6
+                eval_metrics[k].append(int(info_i))
             print(f"{k}: {np.mean(eval_metrics[k])}")
 
         eps_count += args.num_envs
