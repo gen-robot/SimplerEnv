@@ -78,12 +78,16 @@ class Args:
     # openvla specific
     openvla_unnorm_key: Optional[str] = None
 
+    policy_setup: str = "widowx_bridge"
+
 
 def get_robot_control_mode(robot: str):
     if "google_robot_static" in robot:
         return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
     elif "widowx" in robot:
         return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
+    elif "panda" in robot:
+        return "pd_ee_delta_pose" # "pd_ee_target_delta_pose"
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
 
@@ -95,7 +99,7 @@ def main():
 
     # Setup up the policy inference model
     print(f"model is {args.model}")
-    policy_setup = "widowx_bridge"
+    policy_setup = args.policy_setup
 
     env: BaseEnv = gym.make(
         args.env_id,
@@ -187,6 +191,7 @@ def main():
             # step
             start_time = time.time()
             obs, reward, terminated, truncated, info = env.step(action)
+            print("delta action:", action)
             obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
             info = {k: v.cpu().numpy() for k, v in info.items()}
             truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
@@ -268,6 +273,8 @@ def main():
     mean_metrics["total_steos"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
 
+    exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}_{args.env_id}"
+    exp_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = exp_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
 

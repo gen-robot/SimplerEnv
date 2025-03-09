@@ -264,8 +264,7 @@ class RoboticDiffusionTransformerModel(object):
                     device=joints.device, dtype=joints.dtype
                 )
             elif self.robot_name in ['widowx_bridge']:
-                lower, upper = self.gripper_action_scale[0],self.gripper_action_scale[1]
-                joints[...,6:7] = 2/(upper-lower)*joints[...,6:7]-(lower*2/(upper-lower)+1) # [-1, 1] -> [lower, upper]
+                joints[...,6:7] = joints[...,6:7]*2-1
             else:
                 raise ValueError("robot_name_error")
         

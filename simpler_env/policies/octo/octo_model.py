@@ -53,6 +53,11 @@ class OctoInference:
             action_ensemble = True
             action_ensemble_temp = 0.0
             self.sticky_gripper_num_repeat = 15
+        elif policy_setup == "panda":
+            dataset_id = "bridge_dataset" if dataset_id is None else dataset_id
+            action_ensemble = True
+            action_ensemble_temp = 0.0
+            self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(f"Policy setup {policy_setup} not supported for octo models.")
         self.policy_setup = policy_setup
@@ -203,6 +208,7 @@ class OctoInference:
         # action["rot_axangle"] = action_rotation_axangle * self.action_scale
         # TODO: is there a better conversion from euler angles to axis angle?
         action["rot_axangle"] = rotation_conversions.matrix_to_axis_angle(rotation_conversions.euler_angles_to_matrix(raw_action["rotation_delta"], "XYZ"))
+        # action["rot_axangle"] = raw_action["rotation_delta"]
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
 
@@ -254,6 +260,12 @@ class OctoInference:
             action["gripper"] = (
                 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
             )  # binarize gripper action to 1 (open) and -1 (close)
+            # self.gripper_is_closed = (action['gripper'] < 0.0)
+        elif self.policy_setup == "panda":
+            action["gripper"] = (
+                2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
+            )  # binarize gripper action to 1 (open) and -1 (close)
+            # action["gripper"] = raw_action["open_gripper"]
             # self.gripper_is_closed = (action['gripper'] < 0.0)
 
         action["terminate_episode"] = np.array([0.0])
