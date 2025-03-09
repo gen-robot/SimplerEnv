@@ -48,6 +48,7 @@ pip install flash-attn --no-build-isolation
 git clone git@github.com:gen-robot/openvla.git && cd openvla && git checkout dev-jijia && pip install -e . && cd ..
 #git clone https://github.com/openvla/openvla.git && cd openvla && pip install -e . && cd ..
 pip install -U tyro
+pip intall datasets==3.3.2
 
 wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 pip install flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
@@ -85,25 +86,27 @@ huggingface-cli download rail-berkeley/octo-base
 ### openvla maniskill3
 
 ```bash
+# PutSpoonOnTableClothInScene-v1
+# PutCarrotOnPlateInScene-v1
+# StackGreenCubeOnYellowCubeBakedTexInScene-v1
+# PutEggplantInBasketScene-v1
+
+
 # grape
-ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
-CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_visualize.py \
-  --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 20 --num-envs 20 --save-video=true \
-  --openvla_unnorm_key="Simpler"
-
-1. same seed different sample
-2. dpo train upload to wq1
-
-
-# eval
-ckpt_path="../openvla/checkpoints/grape_simpler_sft_dataset/steps_4000/merged_004000"
 #ckpt_path="openvla/openvla-7b"
-CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
-  --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 50 --save-data=true \
-  --openvla_unnorm_key="grape_simpler_sft_dataset"
+#unnorm_key="bridge_orig"
 
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+#ckpt_path="../openvla/results/grape/adapter/openvla-7b+grape_simpler_dpos_dataset+b1+lr-2e-05+lora-r32+dropout-0.0/d1121_check_merged"
+unnorm_key="Simpler"
+#unnorm_key="bridge_orig"
+
+#ckpt_path="../openvla/checkpoints/grape_simpler_sft_dataset_268/steps_4000/merged_004000"
+#unnorm_key="grape_simpler_sft_dataset_268"
+CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 50 --save-video \
+  --openvla_unnorm_key="${unnorm_key}"
 
 # dpo
 # "PutSpoonOnTableClothInScene-v1" 
@@ -114,10 +117,8 @@ for task in "StackGreenCubeOnYellowCubeBakedTexInScene-v1" "PutEggplantInBasketS
     --openvla_unnorm_key="Simpler"
 done
   
-# PutSpoonOnTableClothInScene-v1
-# PutCarrotOnPlateInScene-v1
-# StackGreenCubeOnYellowCubeBakedTexInScene-v1
-# PutEggplantInBasketScene-v1
+# ppo
+CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/train_ms3_ppo.py
 
 flameprof --format=svg --threshold=0.1 images/perf/perf.bin > images/perf/perf.svg
 ```
@@ -192,7 +193,7 @@ tfds build --overwrite
 ## train
 
 ```bash
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=0 \
 torchrun --standalone --nnodes=1 --nproc-per-node 1 vla-scripts/finetune_grape.py \
   --vla_path "openvla/openvla-7b" \
   --dataset_s_name "grape_simpler_dpos_dataset" \
