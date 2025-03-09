@@ -100,7 +100,7 @@ class OpenVLAInference:
 
         images = images.cpu().numpy()
         image_post = [Image.fromarray(self._resize_image(img)) for img in images]
-        prompt = task_description
+        prompt = [f"In: What action should the robot take to {ins.lower()}?\nOut:" for ins in task_description]
 
 
         inputs = self.processor(prompt, image_post).to("cuda:0", dtype=torch.bfloat16)
