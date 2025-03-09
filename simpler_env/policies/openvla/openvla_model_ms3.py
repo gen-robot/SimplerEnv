@@ -33,7 +33,10 @@ class OpenVLAInference:
             unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 15
         elif "panda" in policy_setup or "franka" in policy_setup: # TODO
-            unnorm_key = "bridge_orig" if unnorm_key is None else unnorm_key
+            if "ZijianZhang" in saved_model_path:
+                unnorm_key = "Simpler" if unnorm_key is None else unnorm_key
+            else:
+                unnorm_key = "bridge_orig" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(
@@ -76,6 +79,7 @@ class OpenVLAInference:
         self.sticky_gripper_action = 0.0
         self.previous_gripper_action = None
 
+    # TODO with the version of jijia
     def step(
         self, image: np.ndarray, task_description: Optional[str] = None, *args, **kwargs
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
@@ -136,7 +140,7 @@ class OpenVLAInference:
             roll, pitch, yaw = action_rotation_delta
             action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
             action_rotation_axangle = action_rotation_ax * action_rotation_angle
-            action["rot_axangle"] = action_rotation_axangle * self.action_scale # action_rotation_delta * self.action_scale
+            action["rot_axangle"] = action_rotation_axangle # action_rotation_delta * self.action_scale
 
             # Gripper action logic. Note that the sticky gripper logic is only supported for the google_robot policy setup.
             # sticky_gripper_num_repeat not support for more than one simulation environment; otherwise, it will cause chaos.
