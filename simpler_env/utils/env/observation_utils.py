@@ -19,10 +19,7 @@ def get_image_from_maniskill3_obs_dict(env, obs, camera_name=None):
             camera_name = "3rd_view_camera"
         elif "panda" in env.unwrapped.robot_uids.uid:
             # img = env.render().detach() # [1, H, W ,C]
-            img = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8) # [1, H, W, C]
-            # import PIL.Image as Image
-            # Image.fromarray(img.squeeze().cpu().numpy()).save("output.jpg", "JPEG")
-            return img.to(torch.uint8)
+            camera_name = "3rd_view_camera"
         else:
             raise NotImplementedError()
     img = obs["sensor_data"][camera_name]["rgb"] # [1, H, W, C]

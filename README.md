@@ -182,6 +182,10 @@ CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/ev
 CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
 --model="octo-small" -e PutEggplantInBasketScene-v1 -s 0 --num-episodes 256 --num-envs 64
 
+CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
+--model="octo-small" -e PandaPutSpoonOnTableClothInScene-v1 -s 0 --num-episodes 256 --num-envs 64 \
+--policy_setup="panda" --save_video --save_data
+
 # PutSpoonOnTableClothInScene-v1
 # PutCarrotOnPlateInScene-v1
 # StackGreenCubeOnYellowCubeBakedTexInScene-v1
@@ -211,3 +215,87 @@ torchrun --standalone --nnodes=1 --nproc-per-node 1 vla-scripts/finetune_grape.p
   --save_steps 1000
 ```
 
+
+## panda
+
+### collect data via motion planning
+
+```bash
+# stack cube
+python -m mani_skill.examples.motionplanning.panda.run_simpler -e PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1 \
+--only_count_success --traj_name "bingwen" --save_video --num_traj 5 --num_procs 1
+
+# put spoon
+python -m mani_skill.examples.motionplanning.panda.run_simpler -e PandaPutSpoonOnTableClothInScene-v1 \
+--only_count_success --traj_name "bingwen" --save_video --num_traj 5 --num_procs 1
+
+# put carrot
+python -m mani_skill.examples.motionplanning.panda.run_simpler -e PandaPutCarrotOnPlateInScene-v1 \
+--only_count_success --traj_name "bingwen" --save_video --num_traj 5 --num_procs 1
+
+# If you want local visulization, you should add "--vis", but if you add both "--vis" and "--save_video",
+# the video saved might have some error patch in the picture.
+# Now we not support "--sim_backend gpu", for the error in motion planning, which is caused by _initialize_episode
+# function in panda env.
+
+# support -> PandaStackGreenCubeOnYellowCubeBakedTexInScene
+# support -> PandaPutSpoonOnTableClothInScene
+# support -> PandaPutCarrotOnPlateInScene
+# not support -> PandaPutEggplantInBasketScene
+```
+
+### openvla
+```bash
+# stack cube
+export CUDA_VISIBLE_DEVICES=0
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+unnorm_key="Simpler"
+CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+--model="openvla" --ckpt_path="${ckpt_path}" -e "PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1" -s 0 --num_episodes 50 \
+--num_envs 10 --save_video --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+
+# put spoon
+export CUDA_VISIBLE_DEVICES=1
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+unnorm_key="Simpler"
+CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+--model="openvla" --ckpt_path="${ckpt_path}" -e "PandaPutSpoonOnTableClothInScene-v1" -s 0 --num_episodes 50 \
+--num_envs 10 --save_video --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+
+# put carrot
+export CUDA_VISIBLE_DEVICES=2
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+unnorm_key="Simpler"
+CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+--model="openvla" --ckpt_path="${ckpt_path}" -e "PandaPutCarrotOnPlateInScene-v1" -s 0 --num_episodes 50 \
+--num_envs 10 --save_video --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+
+# put eggplant
+export CUDA_VISIBLE_DEVICES=3
+ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
+unnorm_key="Simpler"
+CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+--model="openvla" --ckpt_path="${ckpt_path}" -e "PandaPutEggplantInBasketScene-v1" -s 0 --num_episodes 50 \
+--num_envs 10 --save_video --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+```
+
+### rdt
+```bash
+# not test
+
+# put carrot
+python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+--env_id "PutCarrotOnPlateInScene-v1" --policy_setup widwox_bridge
+
+# put eggplant
+python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+--env_id "PutEggplantInBasketScene-v1" --policy_setup widowx_bridge
+
+# put spoon
+python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+--env_id "PutSpoonOnTableClothInScene-v1" --policy_setup widowx_bridge
+
+# stack cube
+python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+--env_id "StackGreenCubeOnYellowCubeBakedTexInScene-v1" --policy_setup widowx_bridge
+```

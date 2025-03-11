@@ -21,7 +21,7 @@ from mani_skill.envs.sapien_env import BaseEnv
 import tyro
 from dataclasses import dataclass
 from pathlib import Path
-
+from simpler_env import SIMPLER_ROOT_DIR
 
 @dataclass
 class Args:
@@ -35,6 +35,8 @@ class Args:
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1"
     """The environment ID of the task you want to simulate. Can be one of
     PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
+    # for Widowx in bridgev2: PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1 and
+    # for panda in bridgev2: PandaPutCarrotOnPlateInScene-v1, PandaPutSpoonOnTableClothInScene-v1, PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1, PandaPutEggplantInBasketScene-v1"""
 
     shader: str = "default"  # default, rt
 
@@ -49,7 +51,7 @@ class Args:
     max_episode_len: int = 100
     """Max episode length"""
 
-    record_dir: str = "videos"
+    record_dir: str = os.path.join(SIMPLER_ROOT_DIR,"videos")
     """The directory to save videos and results"""
 
     model: Optional[str] = None
@@ -138,6 +140,11 @@ def main():
     elif args.model == "spatialvla":
         from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
         model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
+    elif args.model == "rdt":
+        from simpler_env.policies.rdt.rdt_model import RDTInference
+        model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
+            env = env, enable_eef_obs=True, enable_qvel_obs=False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
+        )
     else:
         raise NotImplementedError
 
@@ -179,9 +186,12 @@ def main():
         elapsed_steps = 0
         predicted_terminated, truncated = False, False
         while not (predicted_terminated or truncated):
-            # inference
+        # inference
             start_time = time.time()
-
+            # if args.model == 'rdt':
+            #     raw_action, action = model.step(obs, instruction)
+            #     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
+            #                         torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
             raw_action, action = model.step(obs_image, instruction)
             action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
             # action = env.action_space.sample() # random
@@ -277,7 +287,7 @@ def main():
     exp_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = exp_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
-
+    print(f"Evaluation complete. Results saved to {exp_dir}. Metrics saved to {metrics_path}")
 
 if __name__ == "__main__":
     main()
