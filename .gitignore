@@ -32,3 +32,6 @@ imgui.ini
 checkpoints/
 ManiSkill2_real2sim/
 videos/
+
+#dataset
+datasets/

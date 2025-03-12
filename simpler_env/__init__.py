@@ -80,7 +80,8 @@ ENVIRONMENT_MAP = {
 
 
 import os
-SIMPLER_ROOT_DIR =  os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SIMPLER_ROOT_DIR =  os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # /nvme_data/bingwen/Documents/arm_ws/SimplerEnv
+# print(SIMPLER_ROOT_DIR)
 
 def make(task_name):
     """Creates simulated eval environment from task name."""
