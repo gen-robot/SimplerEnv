@@ -8,6 +8,7 @@ from transformers import AutoConfig, AutoImageProcessor
 from PIL import Image
 import torch
 import cv2 as cv
+
 from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
 from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
 from prismatic.extern.hf.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
@@ -32,12 +33,6 @@ class OpenVLAInference:
         elif policy_setup == "google_robot":
             unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 15
-        elif "panda" in policy_setup:
-            if "ZijianZhang" in saved_model_path: 
-                unnorm_key = "Simpler" if unnorm_key is None else unnorm_key
-            else:
-                unnorm_key = "bridge_orig" if unnorm_key is None else unnorm_key
-            self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(f"see huggingface config.json file.")
         self.policy_setup = policy_setup
@@ -88,11 +83,11 @@ class OpenVLAInference:
     ) -> tuple[dict[str, np.ndarray], dict[str, torch.Tensor]]:
         """
         Input:
-            image: np.ndarray of shape (B, H, W, 3), uint8
-            task_description: Optional[str] of shape(B,), task description; if different from previous task description, policy state is reset
+            image: np.ndarray of shape (H, W, 3), uint8
+            task_description: Optional[str], task description; if different from previous task description, policy state is reset
         Output:
             raw_action: dict; raw policy action output
-            action: dict of shape(B,); processed action to be sent to the maniskill2 environment, with the following keys:
+            action: dict; processed action to be sent to the maniskill2 environment, with the following keys:
                 - 'world_vector': np.ndarray of shape (3,), xyz translation of robot end-effector
                 - 'rot_axangle': np.ndarray of shape (3,), axis-angle representation of end-effector rotation
                 - 'gripper': np.ndarray of shape (1,), gripper action
@@ -126,12 +121,12 @@ class OpenVLAInference:
         action = {}
         action["world_vector"] = raw_action["world_vector"] * self.action_scale # [B, 3]
 
-        action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64) # [B, 3]
-        act_rotation = [euler2axangle(a[0], a[1], a[2]) for a in action_rotation_delta] # [B, 3]
-        rax = np.array([a[0] for a in act_rotation]) # [B, 3]
-        rag = np.array([a[1] for a in act_rotation]) # [B]
-        axangle = rax * rag.reshape(-1, 1) # [B, 3]
-        action["rot_axangle"] = axangle * self.action_scale # [B, 3] # step need delta_euler_angle
+        # action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64) # [B, 3]
+        # act_rotation = [euler2axangle(a[0], a[1], a[2]) for a in action_rotation_delta] # [B, 2]
+        # rax = np.array([a[0] for a in act_rotation]) # [B, 3]
+        # rag = np.array([a[1] for a in act_rotation]) # [B]
+        # axangle = rax * rag.reshape(-1, 1) # [B, 3]
+        action["rot_axangle"] = raw_action["rotation_delta"] * self.action_scale # [B, 3]
 
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
@@ -157,8 +152,6 @@ class OpenVLAInference:
             action["gripper"] = relative_gripper_action
 
         elif self.policy_setup == "widowx_bridge":
-            action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0 # [B, 1]
-        elif self.policy_setup == "panda":
             action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0 # [B, 1]
 
         action["terminate_episode"] = np.array([0.0] * batch_size).reshape(-1, 1) # [B, 1]

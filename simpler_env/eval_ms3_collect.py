@@ -156,6 +156,7 @@ def main():
 
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
     total_start_time = time.time()
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
 
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
@@ -232,7 +233,7 @@ def main():
 
         # save video
         if args.save_video:
-            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}_{args.env_id}"
+            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}_{args.env_id}" / timestamp
             exp_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
@@ -250,7 +251,7 @@ def main():
 
         # save data
         if args.save_data:
-            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}_{args.env_id}"
+            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}_{args.env_id}" / timestamp
             exp_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
