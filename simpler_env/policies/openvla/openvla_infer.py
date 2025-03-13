@@ -121,12 +121,12 @@ class OpenVLAInference:
         action = {}
         action["world_vector"] = raw_action["world_vector"] * self.action_scale # [B, 3]
 
-        action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64) # [B, 3]
-        act_rotation = [euler2axangle(a[0], a[1], a[2]) for a in action_rotation_delta] # [B, 2]
-        rax = np.array([a[0] for a in act_rotation]) # [B, 3]
-        rag = np.array([a[1] for a in act_rotation]) # [B]
-        axangle = rax * rag.reshape(-1, 1) # [B, 3]
-        action["rot_axangle"] = axangle * self.action_scale # [B, 3]
+        # action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64) # [B, 3]
+        # act_rotation = [euler2axangle(a[0], a[1], a[2]) for a in action_rotation_delta] # [B, 2]
+        # rax = np.array([a[0] for a in act_rotation]) # [B, 3]
+        # rag = np.array([a[1] for a in act_rotation]) # [B]
+        # axangle = rax * rag.reshape(-1, 1) # [B, 3]
+        action["rot_axangle"] = raw_action["rotation_delta"] * self.action_scale # [B, 3]
 
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
