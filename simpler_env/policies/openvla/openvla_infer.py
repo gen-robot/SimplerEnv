@@ -33,6 +33,12 @@ class OpenVLAInference:
         elif policy_setup == "google_robot":
             unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 15
+        elif "panda" in policy_setup:
+            if "ZijianZhang" in saved_model_path: 
+                unnorm_key = "Simpler" if unnorm_key is None else unnorm_key
+            else:
+                unnorm_key = "bridge_orig" if unnorm_key is None else unnorm_key
+            self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(f"see huggingface config.json file.")
         self.policy_setup = policy_setup
@@ -152,6 +158,8 @@ class OpenVLAInference:
             action["gripper"] = relative_gripper_action
 
         elif self.policy_setup == "widowx_bridge":
+            action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0 # [B, 1]
+        elif self.policy_setup == "panda":
             action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0 # [B, 1]
 
         action["terminate_episode"] = np.array([0.0] * batch_size).reshape(-1, 1) # [B, 1]
