@@ -89,7 +89,7 @@ def get_robot_control_mode(robot: str):
     elif "widowx" in robot:
         return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
     elif "panda" in robot:
-        return "pd_ee_delta_pose" # "pd_ee_target_delta_pose"
+        return "pd_ee_target_delta_pose" # "pd_ee_target_delta_pose" "pd_ee_delta_pose"
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
 
@@ -125,7 +125,7 @@ def main():
         from simpler_env.policies.rt1.rt1_model import RT1Inference
         model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
     elif args.model == "openvla":
-        from simpler_env.policies.openvla.openvla_model_ms3 import OpenVLAInference
+        from simpler_env.policies.openvla.openvla_infer import OpenVLAInference
         model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.,
                                  unnorm_key=args.openvla_unnorm_key)
     elif args.model == "cogact":
@@ -284,7 +284,7 @@ def main():
     mean_metrics["total_steos"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
 
-    exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}_{args.env_id}"
+    exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}_{args.env_id}" / timestamp
     exp_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = exp_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
