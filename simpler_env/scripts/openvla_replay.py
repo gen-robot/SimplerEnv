@@ -158,6 +158,11 @@ def main():
     total_start_time = time.time()
     timestamp = time.strftime("%Y%m%d_%H%M%S")
 
+    episode_path = "/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/videos/scp/PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1/"
+    episode_path += "20250316_150739/data/success_data_0144.npy"
+    np_data = np.load(episode_path,allow_pickle=True).tolist()
+    np_data["instruction"] = np.repeat(np_data["instruction"], args.num_envs)
+
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
 
@@ -176,6 +181,8 @@ def main():
         obs, info = env.reset(seed=seed, options=env_reset_options)
         obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8) # on cuda:0
         instruction = env.unwrapped.get_language_instruction()
+        if np_data["instruction"][0] != instruction[0]:
+            raise ValueError("instruction doesn't match.")
         model.reset(instruction)
 
         print("instruction[0]:", instruction[0])
@@ -186,16 +193,13 @@ def main():
 
         elapsed_steps = 0
         predicted_terminated, truncated = False, False
-        while not (predicted_terminated or truncated):
+        while not (predicted_terminated or truncated) and elapsed_steps<len(np_data["action"]):
         # inference
+            obs_image_train = np.asarray(np_data["image"][elapsed_steps])
+            obs_image_train = torch.from_numpy(np.stack([obs_image_train]*args.num_envs, axis=0))
             start_time = time.time()
-            # if args.model == 'rdt':
-            #     raw_action, action = model.step(obs, instruction)
-            #     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
-            #                         torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
-            raw_action, action = model.step(obs_image, instruction)
+            raw_action, action = model.step(obs_image_train, instruction)
             action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
-            # action = env.action_space.sample() # random
 
             timers["inference"] += time.time() - start_time
 
@@ -215,7 +219,9 @@ def main():
 
             # data dump: image, action, info
             for i in range(args.num_envs):
-                log_image = obs_image[i].cpu().numpy()
+                log_image = torch.cat([obs["sensor_data"]["left_view"]["rgb"].to(torch.uint8)[i],
+                                        obs_image[i],obs_image_train[i].to(env.device)],dim=1).cpu().numpy()
+                # log_image = obs_image[i].cpu().numpy()
                 log_action = action[i].cpu().numpy().tolist()
                 log_info = {k: v[i].tolist() for k, v in info.items()}
                 datas[i]["image"].append(log_image)
@@ -228,12 +234,13 @@ def main():
 
         # data dump: last image
         for i in range(args.num_envs):
-            log_image = obs_image[i].cpu().numpy()
+            log_image = torch.cat([obs["sensor_data"]["left_view"]["rgb"].to(torch.uint8)[i],
+                                    obs_image[i],obs_image_train[i].to(env.device)],dim=1).cpu().numpy()
             datas[i]["image"].append(log_image)
 
         # save video
         if args.save_video:
-            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
+            exp_dir = Path(args.record_dir) / f"evaluate_train/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
             exp_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
