@@ -224,15 +224,15 @@ torchrun --standalone --nnodes=1 --nproc-per-node 1 vla-scripts/finetune_grape.p
 ## save .npy file
 # simpler stack cube
 python -m mani_skill.examples.motionplanning.panda.collect_simpler -e PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1 \
---only_count_success --save_video --save_data --control_mode pd_ee_target_delta_pose --num_traj 5 --num_procs 1
+--save_video --save_data --control_mode pd_ee_target_delta_pose --num_procs 1 --num_traj 5 
 
-# simpler put spoon
+# simpler put spoon * 
 python -m mani_skill.examples.motionplanning.panda.collect_simpler -e PandaPutSpoonOnTableClothInScene-v1 \
---only_count_success --save_video --save_data --control_mode pd_ee_target_delta_pose --num_traj 5 --num_procs 1
+--save_video --save_data --control_mode pd_ee_target_delta_pose --num_procs 1 --num_traj 5
 
 # simpler put carrot
 python -m mani_skill.examples.motionplanning.panda.collect_simpler -e PandaPutCarrotOnPlateInScene-v1 \
---only_count_success --save_video --save_data --control_mode pd_ee_target_delta_pose --num_traj 5 --num_procs 1 
+--save_video --save_data --control_mode pd_ee_target_delta_pose --num_procs 1 --num_traj 5
 
 # If you want local visulization, you should add "--vis", but if you add both "--vis" and "--save_video",
 # the video saved might have some error patch in the picture.
