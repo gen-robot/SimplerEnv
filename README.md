@@ -223,11 +223,11 @@ torchrun --standalone --nnodes=1 --nproc-per-node 1 vla-scripts/finetune_grape.p
 ```bash
 ## save .npy file
 
-# simpler put spoon * 
+# simpler put spoon * should use cpu mode, pd_ee_target_delta_pose mode
 python -m mani_skill.examples.motionplanning.panda.collect_simpler -e PandaPutSpoonOnTableClothInScene-v1 \
 --save_video --save_data --control_mode pd_ee_target_delta_pose --num_procs 1 --num_traj 5
 
-# simpler put eggplant
+# simpler put eggplant -> maybe some failure
 python -m mani_skill.examples.motionplanning.panda.collect_simpler -e PandaPutEggplantInBasketScene-v1 \
 --save_video --save_data --control_mode pd_ee_target_delta_pose --num_procs 1 --num_traj 5
 
@@ -240,7 +240,7 @@ python -m mani_skill.examples.motionplanning.panda.collect_simpler -e PandaStack
 --save_video --save_data --control_mode pd_ee_target_delta_pose --num_procs 1 --num_traj 5 
 
 # If you want local visulization, you should add "--vis", but if you add both "--vis" and "--save_video",
-# the video saved might have some error patch in the picture.
+# the video saved might have some error patches in the picture.
 # Now we not support "--sim_backend gpu", for the error in motion planning, which is caused by _initialize_episode
 # function in panda env.
 
@@ -258,19 +258,23 @@ rsync -avzP scp/ wq3:/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/videos/scp
 ### openvla
 #### evaluate
 ```bash
-# ckpt_path="openvla/openvla-7b"
-# ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
-# unnorm_key="Simpler"
-
-# stack cube
-ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
-unnorm_key="panda_simpler_sft_dataset"
-CUDA_VISIBLE_DEVICES=3 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+# put spoon 22%
+ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/steps_9000/merged_009000"
+unnorm_key="panda_simpler_spoon_dataset"
+CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+  -e "PandaPutSpoonOnTableClothInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
   --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
 
-# put carrot
+# put eggplant -> not test
+ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
+unnorm_key="panda_simpler_sft_dataset"
+CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PandaPutEggplantInBasketScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+
+# put carrot -> not test
 ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
 unnorm_key="panda_simpler_sft_dataset"
 CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
@@ -278,12 +282,12 @@ CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env
   -e "PandaPutCarrotOnPlateInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
   --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
 
-# put spoon
+# stack cube -> not test
 ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
 unnorm_key="panda_simpler_sft_dataset"
-CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+CUDA_VISIBLE_DEVICES=3 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PandaPutSpoonOnTableClothInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+  -e "PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
   --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
 ```
 
@@ -291,19 +295,19 @@ CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env
 ```bash
 # not test
 
-# put carrot
-python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
---env_id "PutCarrotOnPlateInScene-v1" --policy_setup widwox_bridge
+# # put carrot
+# python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+# --env_id "PutCarrotOnPlateInScene-v1" --policy_setup widwox_bridge
 
-# put eggplant
-python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
---env_id "PutEggplantInBasketScene-v1" --policy_setup widowx_bridge
+# # put eggplant
+# python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+# --env_id "PutEggplantInBasketScene-v1" --policy_setup widowx_bridge
 
-# put spoon
-python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
---env_id "PutSpoonOnTableClothInScene-v1" --policy_setup widowx_bridge
+# # put spoon
+# python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+# --env_id "PutSpoonOnTableClothInScene-v1" --policy_setup widowx_bridge
 
-# stack cube
-python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
---env_id "StackGreenCubeOnYellowCubeBakedTexInScene-v1" --policy_setup widowx_bridge
+# # stack cube
+# python -m simpler_env.eval_ms3_collect --model rdt --ckpt_path '/nvme_data/embodied_agent/pretrained/rdt-1b' \
+# --env_id "StackGreenCubeOnYellowCubeBakedTexInScene-v1" --policy_setup widowx_bridge
 ```

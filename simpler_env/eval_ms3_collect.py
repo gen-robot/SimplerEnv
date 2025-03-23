@@ -89,7 +89,7 @@ def get_robot_control_mode(robot: str):
     elif "widowx" in robot:
         return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
     elif "panda" in robot:
-        return "pd_ee_target_delta_pose" # "pd_ee_target_delta_pose" "pd_ee_delta_pose"
+        return "pd_ee_target_delta_pose"
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
 
