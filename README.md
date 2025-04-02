@@ -45,10 +45,13 @@ pip install flash-attn --no-build-isolation
 ### openvla train
 
 ```bash
+# Manually do git clone
+git clone https://github.com/moojink/dlimp_openvla
+# set "dlimp @ file:///home/pancake/Documents/dlimp_openvla" in openvla repo, and try to rerun the `pip install -e .`
 git clone git@github.com:gen-robot/openvla.git && cd openvla && git checkout dev-jijia && pip install -e . && cd ..
 #git clone https://github.com/openvla/openvla.git && cd openvla && pip install -e . && cd ..
 pip install -U tyro
-pip intall datasets==3.3.2
+pip install datasets==3.3.2
 
 wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 pip install flash_attn-2.7.4.post1+cu12torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
