@@ -256,39 +256,114 @@ rsync -avzP scp/ wq3:/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/videos/scp
 
 
 ### openvla
-#### evaluate
+#### evaluate in simpler
 ```bash
-# put spoon 22%
-ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/steps_9000/merged_009000"
+# put spoon 18%
+ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/3.0.0/steps_10000_bs_8/merged_010000"
 unnorm_key="panda_simpler_spoon_dataset"
-CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+CUDA_VISIBLE_DEVICES=3 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${ckpt_path}" \
   -e "PandaPutSpoonOnTableClothInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
-  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120
 
-# put eggplant -> not test
-ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
-unnorm_key="panda_simpler_sft_dataset"
-CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
-  --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PandaPutEggplantInBasketScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
-  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
-
-# put carrot -> not test
-ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
-unnorm_key="panda_simpler_sft_dataset"
-CUDA_VISIBLE_DEVICES=5 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
-  --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PandaPutCarrotOnPlateInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
-  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
-
-# stack cube -> not test
+# put eggplant
 ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
 unnorm_key="panda_simpler_sft_dataset"
 CUDA_VISIBLE_DEVICES=3 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PandaPutEggplantInBasketScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120
+
+# put carrot
+ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
+unnorm_key="panda_simpler_sft_dataset"
+CUDA_VISIBLE_DEVICES=4 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
+  -e "PandaPutCarrotOnPlateInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120
+
+# stack cube
+ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
+unnorm_key="panda_simpler_sft_dataset"
+CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+  --model="openvla" --ckpt_path="${ckpt_path}" \
   -e "PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
-  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 100
+  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120
+
+# for 4 tasks run simultaneously.
+ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/3.0.0/steps_10000_bs_8/merged_010000"
+unnorm_key="panda_simpler_spoon_dataset"
+declare -A tasks=(
+  ["PandaPutSpoonOnTableClothInScene-v1"]=3
+  ["PandaPutEggplantInBasketScene-v1"]=3
+  ["PandaPutCarrotOnPlateInScene-v1"]=4
+  ["PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1"]=6
+)
+for env_id in "${!tasks[@]}"; do
+  cuda_device=${tasks[$env_id]}
+
+  echo "Running evaluation for: $env_id on GPU $cuda_device"
+
+  CUDA_VISIBLE_DEVICES=$cuda_device XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+    --model="openvla" --ckpt_path="$ckpt_path" \
+    -e "$env_id" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+    --openvla_unnorm_key="$unnorm_key" --policy_setup panda --max_episode_len 120 &
+done
+
+wait
+echo "All evaluations are completed!"
+```
+
+### evaluate in tabletop
+```bash
+# for total objects and containers
+no_sft_ckpt_path="/nvme_data/bingwen/checkpoints/jijia/merge/6tjl2vvp"
+no_sft_unnorm_key="bridge_orig"
+
+sft_ckpt_path="/nvme_data/bingwen/checkpoints/jijia/merge/vs50t84h"
+sft_unnorm_key="grape_simpler_sft_dataset_268"
+
+objects=("blueberry" "lemon" "peach" "red_apple" "tomato" "garlic" "green_bell_pepper" "golf_ball" "pen" "nonstop")
+containers=("plate" "bowl")
+for object_name in "${objects[@]}"; do
+  for container_name in "${containers[@]}"; do
+    echo "Running evaluation for: $object_name on $container_name"
+
+    # for only rl
+    CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+      --model="openvla" --ckpt_path="${no_sft_ckpt_path}" \
+      -e "TabletopPickPlace-v1" -s 0 --num-episodes 50 --num-envs 5 --save-video \
+      --openvla_unnorm_key="${no_sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 60 \
+      --object_name="$object_name" --container_name="$container_name" & 
+
+    # for sft + rl
+    CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+      --model="openvla" --ckpt_path="${sft_ckpt_path}" \
+      -e "TabletopPickPlace-v1" -s 0 --num-episodes 50 --num-envs 5 --save-video \
+      --openvla_unnorm_key="${sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 60 \
+      --object_name="$object_name" --container_name="$container_name" & 
+
+    wait
+  done
+done
+
+# for only one environment only rl
+no_sft_ckpt_path="/nvme_data/bingwen/checkpoints/jijia/merge/6tjl2vvp"
+no_sft_unnorm_key="bridge_orig"
+CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+  --model="openvla" --ckpt_path="${no_sft_ckpt_path}" \
+  -e "TabletopPickPlace-v1" -s 0 --num-episodes 10 --num-envs 10 --save-video \
+  --openvla_unnorm_key="${no_sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 100 \
+  --object_name="lemon" --container_name="plate"
+
+# for only one environment sft+rl
+sft_ckpt_path="/nvme_data/bingwen/checkpoints/jijia/merge/vs50t84h"
+sft_unnorm_key="grape_simpler_sft_dataset_268"
+CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+  --model="openvla" --ckpt_path="${sft_ckpt_path}" \
+  -e "TabletopPickPlace-v1" -s 0 --num-episodes 10 --num-envs 10 --save-video \
+  --openvla_unnorm_key="${sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 100 \
+  --object_name="lemon" --container_name="plate"
 ```
 
 ### rdt

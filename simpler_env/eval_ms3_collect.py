@@ -82,6 +82,9 @@ class Args:
 
     policy_setup: str = "widowx_bridge"
 
+    container_name: str = None
+
+    object_name: str = None
 
 def get_robot_control_mode(robot: str):
     if "google_robot_static" in robot:
@@ -103,19 +106,37 @@ def main():
     print(f"model is {args.model}")
     policy_setup = args.policy_setup
 
-    env: BaseEnv = gym.make(
-        args.env_id,
-        num_envs=args.num_envs,
-        obs_mode="rgb+segmentation",
-        control_mode=get_robot_control_mode(policy_setup),
-        sim_backend="gpu",
-        sim_config={
-            "sim_freq": 500,
-            "control_freq": 5,
-        },
-        max_episode_steps=args.max_episode_len,
-        sensor_configs={"shader_pack": args.shader},
-    )
+    if args.env_id == "TabletopPickPlace-v1":
+        env: BaseEnv = gym.make(
+            args.env_id,
+            num_envs=args.num_envs,
+            obs_mode="rgb+segmentation",
+            control_mode=get_robot_control_mode(policy_setup),
+            sim_backend="gpu",
+            sim_config={
+                "sim_freq": 500,
+                "control_freq": 5,
+            },
+            max_episode_steps=args.max_episode_len,
+            sensor_configs={"shader_pack": args.shader},
+            object_name = args.object_name,
+            container_name = args.container_name,
+        )
+    else:
+        env: BaseEnv = gym.make(
+            args.env_id,
+            num_envs=args.num_envs,
+            obs_mode="rgb+segmentation",
+            control_mode=get_robot_control_mode(policy_setup),
+            sim_backend="gpu",
+            sim_config={
+                "sim_freq": 500,
+                "control_freq": 5,
+            },
+            max_episode_steps=args.max_episode_len,
+            sensor_configs={"shader_pack": args.shader},
+        )
+
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
     if args.model == "octo-base" or args.model == "octo-small":
@@ -233,8 +254,13 @@ def main():
 
         # save video
         if args.save_video:
-            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
-            exp_dir.mkdir(parents=True, exist_ok=True)
+            if args.container_name != None and args.object_name != None:
+                temp_name = f"put_{args.object_name}_on_{args.container_name}"
+                exp_vis_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / temp_name / timestamp
+                exp_vis_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                exp_vis_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
+                exp_vis_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
                 images = datas[i]["image"]
@@ -246,20 +272,20 @@ def main():
                         images[j + 1] = visualization.put_info_on_image(images[j + 1], infos[j])
 
                 success = np.sum([d["success"] for d in infos]) >= 6
-                images_to_video(images, str(exp_dir), f"video_{eps_count + i}_success={success}",
+                images_to_video(images, str(exp_vis_dir), f"video_{eps_count + i}_success={success}",
                                 fps=10, verbose=True)
 
         # save data
         if args.save_data:
-            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
-            exp_dir.mkdir(parents=True, exist_ok=True)
+            exp_data_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
+            exp_data_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
                 if np.sum([d["success"] for d in datas[i]["info"]]) < 6:
                     continue
                 res = datas[i].copy()
                 res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
-                np.save(exp_dir / f"data_{eps_count + i:0>4d}.npy", res)
+                np.save(exp_data_dir / f"data_{eps_count + i:0>4d}.npy", res)
 
 
         # metrics log and print
@@ -284,11 +310,9 @@ def main():
     mean_metrics["total_steos"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
 
-    exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
-    exp_dir.mkdir(parents=True, exist_ok=True)
-    metrics_path = exp_dir / f"eval_metrics.json"
+    metrics_path = exp_vis_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
-    print(f"Evaluation complete. Results saved to {exp_dir}. Metrics saved to {metrics_path}")
+    print(f"Evaluation complete. Results saved to {exp_vis_dir}. Metrics saved to {metrics_path}")
 
 if __name__ == "__main__":
     main()
