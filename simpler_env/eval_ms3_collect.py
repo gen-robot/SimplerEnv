@@ -86,6 +86,8 @@ class Args:
 
     object_name: str = None
 
+    action_scale: float = 1.0
+
 def get_robot_control_mode(robot: str):
     if "google_robot_static" in robot:
         return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
@@ -141,29 +143,29 @@ def main():
 
     if args.model == "octo-base" or args.model == "octo-small":
         from simpler_env.policies.octo.octo_model import OctoInference
-        model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
+        model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=args.action_scale)
     elif args.model == "rt-1x":
         from simpler_env.policies.rt1.rt1_model import RT1Inference
-        model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
+        model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=args.action_scale)
     elif args.model == "openvla":
         from simpler_env.policies.openvla.openvla_infer import OpenVLAInference
-        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.,
+        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=args.action_scale,
                                  unnorm_key=args.openvla_unnorm_key)
     elif args.model == "cogact":
         from simpler_env.policies.sim_cogact import CogACTInference
         model = CogACTInference(
             saved_model_path=args.ckpt_path,  # e.g., CogACT/CogACT-Base
             policy_setup=policy_setup,
-            action_scale=1.0,
+            action_scale=args.action_scale,
             action_model_type='DiT-L',
             cfg_scale=1.5  # cfg from 1.5 to 7 also performs well
         )
     elif args.model == "spatialvla":
         from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
-        model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
+        model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=args.action_scale, )
     elif args.model == "rdt":
         from simpler_env.policies.rdt.rdt_model import RDTInference
-        model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
+        model = RDTInference(ctrl_freq = 25, action_scale=args.action_scale, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
             env = env, enable_eef_obs=True, enable_qvel_obs=False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
         )
     else:
@@ -309,6 +311,7 @@ def main():
     mean_metrics["total_episodes"] = eps_count
     mean_metrics["total_steos"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
+    mean_metrics["action_scale"] = args.action_scale
 
     metrics_path = exp_vis_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)

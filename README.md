@@ -262,12 +262,14 @@ rsync -avzP scp/ wq3:/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/videos/scp
 #### evaluate in simpler
 ```bash
 # put spoon 18%
-ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/3.0.0/steps_10000_bs_8/merged_010000"
-unnorm_key="panda_simpler_spoon_dataset"
+# ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/3.0.0/steps_10000_bs_8/merged_010000"
+# unnorm_key="panda_simpler_spoon_dataset"
+ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/checkpoints/bingwen/panda_simpler_spoon_40000_50000_v310"
+unnorm_key="panda_simpler_spoon_dataset:3.1.0"
 CUDA_VISIBLE_DEVICES=3 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${ckpt_path}" \
   -e "PandaPutSpoonOnTableClothInScene-v1" -s 0 --num-episodes 100 --num-envs 10 --save-video \
-  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120
+  --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120 --action_scale 1.0
 
 # put eggplant
 ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_sft_dataset/steps_10000/merged_010000"
@@ -294,27 +296,38 @@ CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env
   --openvla_unnorm_key="${unnorm_key}" --policy_setup panda --max_episode_len 120
 
 # for 4 tasks run simultaneously.
-ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/panda_simpler_spoon_dataset/3.0.0/steps_10000_bs_8/merged_010000"
-unnorm_key="panda_simpler_spoon_dataset"
+ckpt_path="/home/bingwen/Documents/arm_ws/SimplerEnv/checkpoints/bingwen/panda_simpler_sft_34000_50000_v110"
+unnorm_key="panda_simpler_sft_dataset:1.1.0"
 declare -A tasks=(
-  ["PandaPutSpoonOnTableClothInScene-v1"]=3
-  ["PandaPutEggplantInBasketScene-v1"]=3
-  ["PandaPutCarrotOnPlateInScene-v1"]=4
-  ["PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1"]=6
+  ["PandaPutSpoonOnTableClothInScene-v1"]=1
+  ["PandaPutEggplantInBasketScene-v1"]=1
+  ["PandaPutCarrotOnPlateInScene-v1"]=2
+  ["PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1"]=2
 )
+declare -A grouped_tasks
 for env_id in "${!tasks[@]}"; do
-  cuda_device=${tasks[$env_id]}
-
-  echo "Running evaluation for: $env_id on GPU $cuda_device"
-
-  CUDA_VISIBLE_DEVICES=$cuda_device XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
-    --model="openvla" --ckpt_path="$ckpt_path" \
-    -e "$env_id" -s 0 --num-episodes 100 --num-envs 10 --save-video \
-    --openvla_unnorm_key="$unnorm_key" --policy_setup panda --max_episode_len 120 &
+  gpu=${tasks[$env_id]}
+  grouped_tasks[$gpu]+="$env_id "
 done
-
+action_scales=(1.0 )
+for gpu in "${!grouped_tasks[@]}"; do
+  {
+    echo "===> Running tasks on GPU $gpu"
+    for env_id in ${grouped_tasks[$gpu]}; do
+      # Loop over each action_scale for the current environment and GPU
+      for scale in "${action_scales[@]}"; do
+        echo "Running evaluation for: $env_id on GPU $gpu | action_scale=$scale"
+        CUDA_VISIBLE_DEVICES=$gpu XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
+          --model="openvla" --ckpt_path="$ckpt_path" \
+          -e "$env_id" -s 0 --num-episodes 100 --num-envs 10 --save-video \
+          --openvla_unnorm_key="$unnorm_key" --policy_setup panda --max_episode_len 120 --action_scale $scale
+      done
+    done
+  } & 
+done
 wait
 echo "All evaluations are completed!"
+
 ```
 
 ### evaluate in tabletop
