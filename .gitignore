@@ -29,7 +29,7 @@ dist/
 imgui.ini
 
 # octo/
-checkpoints/
+checkpoints
 ManiSkill2_real2sim/
 videos/
 
