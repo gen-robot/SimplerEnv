@@ -221,7 +221,7 @@ torchrun --standalone --nnodes=1 --nproc-per-node 1 vla-scripts/finetune_grape.p
 
 ## panda
 
-### [Instruction For Data Collection In ManiSkill](ManiSkill/instruction.md) 
+### [Instruction For Data Collection In ManiSkill](ManiSkill/INSTRUCTION.md) 
 
 ### openvla
 #### evaluation in simpler
