@@ -11,7 +11,7 @@ import tree
 from mani_skill.utils import common
 from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
-
+from mani_skill.utils.geometry.rotation_conversions import matrix_to_euler_angles
 signal.signal(signal.SIGINT, signal.SIG_DFL)  # allow ctrl+c
 
 import gymnasium as gym
@@ -32,8 +32,11 @@ class Args:
         --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
 
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TabletopPickPlace-v1"
+    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "TabletopPickPlaceEnv-v1"
     """The environment ID of the task you want to simulate. """
+
+    robot_uids: Annotated[Optional[str], tyro.conf.arg(aliases=["-r"])] = None
+    """Robot UID(s) to use. Can be a comma separated list of UIDs or empty string to have no agents. If not given then defaults to the environments default robot"""
 
     shader: str = "default"  # default, rt
 
@@ -72,6 +75,11 @@ class Args:
     save_data: bool = False
     """Whether to save collect data"""
 
+    control_mode: Annotated[Optional[str], tyro.conf.arg(aliases=["-c"])] = None
+    """Control mode"""
+
+    obs_normalize_params_path: str = ""
+
     debug: bool = False
 
     # openvla specific
@@ -79,9 +87,9 @@ class Args:
 
     policy_setup: str = "widowx_bridge"
 
-    container_name: str = None
+    container_name: Optional[str] = None
 
-    object_name: str = None
+    object_name: Optional[str] = None
 
     action_scale: float = 1.0
 
@@ -92,10 +100,9 @@ def get_robot_control_mode(robot: str):
     elif "widowx" in robot:
         return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
     elif "panda" in robot:
-        return "pd_ee_target_delta_pose"
+        return "pd_ee_pose"
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
-
 
 def main():
     args = tyro.cli(Args)
@@ -106,38 +113,32 @@ def main():
     print(f"model is {args.model}")
     policy_setup = args.policy_setup
 
-    if args.env_id == "TabletopPickPlace-v1":
-        env: BaseEnv = gym.make(
-            args.env_id,
-            num_envs=args.num_envs,
-            obs_mode="rgb+segmentation",
-            control_mode=get_robot_control_mode(policy_setup),
-            sim_backend="gpu",
-            sim_config={
-                "sim_freq": 500,
-                "control_freq": 5,
-            },
-            max_episode_steps=args.max_episode_len,
-            sensor_configs={"shader_pack": args.shader},
-            object_name = args.object_name,
-            container_name = args.container_name,
-        )
-    else:
-        env: BaseEnv = gym.make(
-            args.env_id,
-            num_envs=args.num_envs,
-            obs_mode="rgb+segmentation",
-            control_mode=get_robot_control_mode(policy_setup),
-            sim_backend="gpu",
-            sim_config={
-                "sim_freq": 500,
-                "control_freq": 5,
-            },
-            max_episode_steps=args.max_episode_len,
-            sensor_configs={"shader_pack": args.shader},
-        )
+    env_kwargs = dict(
+        num_envs=args.num_envs,
+        obs_mode="rgb+segmentation",
+        control_mode=get_robot_control_mode(policy_setup) if args.control_mode is None else args.control_mode,
+        sim_backend="gpu",
+        sim_config={
+            "sim_freq": 500,
+            "control_freq": 5,
+        },
+        max_episode_steps=args.max_episode_len,
+        sensor_configs={"shader_pack": args.shader},
+    )
+    if args.robot_uids is not None:
+        env_kwargs["robot_uids"] = tuple(args.robot_uids.split(","))
 
-    sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
+    if args.env_id == "TabletopPickPlaceEnv-v1":
+        env_kwargs["object_name"] = args.object_name
+        env_kwargs["container_name"] = args.container_name
+    elif args.env_id == "TabletopPickEnv-v1":
+        env_kwargs["object_name"] = args.object_name
+
+    env: BaseEnv = gym.make(
+        args.env_id,
+        **env_kwargs,
+    )
+    sim_backend = 'gpu' if env.unwrapped.device.type == 'cuda' else 'cpu'
 
     if args.model == "octo-base" or args.model == "octo-small":
         from simpler_env.policies.octo.octo_model import OctoInference
@@ -168,8 +169,8 @@ def main():
         )
     elif args.model == "diffusion_policy":
         from simpler_env.policies.dp.dp_infer import DPInference
-        from simpler_env.policies.dp.dp_modules.utils.math import mat2euler, get_pose_from_rot_pos
-        model = DPInference("",args.ckpt_path)
+        from simpler_env.policies.dp.dp_modules.utils.math import mat2euler, get_pose_from_rot_pos, get_pose_from_rot_pos_batch
+        model = DPInference(args.obs_normalize_params_path, args.ckpt_path)
     else:
         raise NotImplementedError
 
@@ -214,32 +215,27 @@ def main():
         while not (predicted_terminated or truncated):
         # inference
             start_time = time.time()
-            raw_action = model.step(obs_image, instruction)
+            # only for diffusion policy
+            _, raw_action = model.step(env, obs_image, instruction) # actually only env is needed
             timers["inference"] += time.time() - start_time
-            for i in range(10): # dp generate 10
-                action = raw_action[i]
-                mat_6 = action[3:9].reshape(3, 2)
-                mat_6[:, 0] = mat_6[:, 0] / np.linalg.norm(mat_6[:, 0])
-                mat_6[:, 1] = mat_6[:, 1] / np.linalg.norm(mat_6[:, 1])
-                z_vec = np.cross(mat_6[:, 0], mat_6[:, 1])
-                mat = np.c_[mat_6, z_vec]
-                # assert mat.shape == (3, 3)
+            for i in range(4): # dp generate 8
+                B = raw_action.shape[0]
+                action = raw_action[:,i,:] # [B, 10]
+                mat_6 = action[:,3:9].reshape(action.shape[0],3,2) # [B ,3, 2]
+                mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0]) # [B, 3]
+                mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1]) # [B, 3]
+                z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1]) # [B, 3]
+                z_vec = z_vec[:, :, np.newaxis]  # (batch_size, 3, 1)
 
-                pos = action[:3]
-                gripper_width = action[-1]
+                mat = np.concatenate([mat_6, z_vec], axis=2)
+                # assert mat.shape == (B, 3, 3)
 
-                init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos(
-                    mat, pos
-                )
-
-                pose_action = np.concatenate(
-                    [
-                        # [0, 0], # for mobile base
-                        init_to_desired_pose[:3, 3],
-                        mat2euler(init_to_desired_pose[:3, :3]),
-                        [gripper_width]
-                    ]
-                )
+                pos = action[:, :3] # [B, 3]
+                gripper_width = action[:, -1, np.newaxis] # [B, 1]
+                init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos)
+                pose_action = np.concatenate([init_to_desired_pose[:, :3, 3],
+                            matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
+                            gripper_width], axis=1) # [B, 7]
                 # step
                 start_time = time.time()
                 obs, reward, terminated, truncated, info = env.step(pose_action)
@@ -257,7 +253,7 @@ def main():
                 # data dump: image, action, info
                 for i in range(args.num_envs):
                     log_image = obs_image[i].cpu().numpy()
-                    log_action = action[i].cpu().numpy().tolist()
+                    log_action = pose_action[i].tolist()
                     log_info = {k: v[i].tolist() for k, v in info.items()}
                     datas[i]["image"].append(log_image)
                     datas[i]["action"].append(log_action)
@@ -279,7 +275,7 @@ def main():
                 exp_vis_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / temp_name / timestamp
                 exp_vis_dir.mkdir(parents=True, exist_ok=True)
             elif args.object_name != None:
-                temp_name = f"pick_{args.object_name}_up"
+                temp_name = f"pick_the_{args.object_name}_up"
                 exp_vis_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / temp_name / timestamp
                 exp_vis_dir.mkdir(parents=True, exist_ok=True)
             else:

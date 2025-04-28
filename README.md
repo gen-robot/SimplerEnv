@@ -311,14 +311,14 @@ for object_name in "${objects[@]}"; do
     # for only rl
     CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
       --model="openvla" --ckpt_path="${no_sft_ckpt_path}" \
-      -e "TabletopPickPlace-v1" -s 0 --num-episodes 50 --num-envs 5 --save-video \
+      -e "TabletopPickPlaceEnv-v1" -s 0 --num-episodes 50 --num-envs 5 --save-video \
       --openvla_unnorm_key="${no_sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 60 \
       --object_name="$object_name" --container_name="$container_name" & 
 
     # for sft + rl
     CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
       --model="openvla" --ckpt_path="${sft_ckpt_path}" \
-      -e "TabletopPickPlace-v1" -s 0 --num-episodes 50 --num-envs 5 --save-video \
+      -e "TabletopPickPlaceEnv-v1" -s 0 --num-episodes 50 --num-envs 5 --save-video \
       --openvla_unnorm_key="${sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 60 \
       --object_name="$object_name" --container_name="$container_name" & 
 
@@ -331,7 +331,7 @@ no_sft_ckpt_path="/nvme_data/bingwen/checkpoints/jijia/merge/6tjl2vvp"
 no_sft_unnorm_key="bridge_orig"
 CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${no_sft_ckpt_path}" \
-  -e "TabletopPickPlace-v1" -s 0 --num-episodes 10 --num-envs 10 --save-video \
+  -e "TabletopPickPlaceEnv-v1" -s 0 --num-episodes 10 --num-envs 10 --save-video \
   --openvla_unnorm_key="${no_sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 100 \
   --object_name="lemon" --container_name="plate"
 
@@ -340,7 +340,7 @@ sft_ckpt_path="/nvme_data/bingwen/checkpoints/jijia/merge/vs50t84h"
 sft_unnorm_key="grape_simpler_sft_dataset_268"
 CUDA_VISIBLE_DEVICES=6 XLA_PYTHON_CLIENT_PREALLOCATE=false python -m simpler_env.eval_ms3_collect \
   --model="openvla" --ckpt_path="${sft_ckpt_path}" \
-  -e "TabletopPickPlace-v1" -s 0 --num-episodes 10 --num-envs 10 --save-video \
+  -e "TabletopPickPlaceEnv-v1" -s 0 --num-episodes 10 --num-envs 10 --save-video \
   --openvla_unnorm_key="${sft_unnorm_key}" --policy_setup widowx_bridge --max_episode_len 100 \
   --object_name="lemon" --container_name="plate"
 ```

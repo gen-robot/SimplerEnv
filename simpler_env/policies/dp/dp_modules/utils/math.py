@@ -36,6 +36,12 @@ def get_pose_from_rot_pos(mat: np.ndarray, pos: np.ndarray):
         axis=0,
     )
 
+def get_pose_from_rot_pos_batch(mat: np.ndarray, pos: np.ndarray):
+    B = mat.shape[0]
+    upper = np.concatenate([mat, pos[:, :, np.newaxis]], axis=2)  # (B, 3, 4)
+    bottom = np.tile(np.array([0.0, 0.0, 0.0, 1.0]).reshape(1, 1, 4), (B, 1, 1))  # (B, 1, 4)
+    pose = np.concatenate([upper, bottom], axis=1)  # (B, 4, 4)
+    return pose
 
 def rot6d2mat(x: np.ndarray):
     x = x.reshape(3, 2)

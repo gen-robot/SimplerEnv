@@ -108,7 +108,7 @@ def main():
     print(f"model is {args.model}")
     policy_setup = args.policy_setup
 
-    if args.env_id == "TabletopPickPlace-v1":
+    if args.env_id == "TabletopPickPlaceEnv-v1":
         env: BaseEnv = gym.make(
             args.env_id,
             num_envs=args.num_envs,

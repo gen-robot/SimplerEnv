@@ -13,6 +13,7 @@ from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.training_utils import EMAModel
 
 
+# with diffusers verison 0.11.1
 class DiffusionPolicy(nn.Module):
     def __init__(self, args_override):
         super().__init__()

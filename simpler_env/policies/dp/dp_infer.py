@@ -6,6 +6,7 @@ import imageio
 import numpy as np
 from datetime import datetime
 import torchvision.transforms as transforms
+from mani_skill.utils import common, gym_utils
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.geometry import rotation_conversions
@@ -17,7 +18,7 @@ class DPInference:
     def __init__(
         self,
         obs_normalize_params_path: str,
-        saved_model_path: str = "openvla/openvla-7b",
+        saved_model_path: str,
     ) -> None:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -49,15 +50,14 @@ class DPInference:
         )
 
         self.cameras = ['3rd_view_camera']
-        self.usages = ['obs']
 
-        policy_config = {
+        self.policy_config = {
             'lr': 1e-5,
-            'num_images': len(self.cameras) * len(self.usages),
+            'num_images': len(self.cameras),
             'action_dim': 10,
             'observation_horizon': 1,
             'action_horizon': 1,
-            'prediction_horizon': 20,
+            'prediction_horizon': 8, # used in training
 
             'global_obs_dim': 10,
             'num_inference_timesteps': 10,
@@ -65,37 +65,47 @@ class DPInference:
             'vq': False,
         }
     
-        self.policy = DiffusionPolicy(policy_config)
+        self.policy = DiffusionPolicy(self.policy_config)
         self.policy.deserialize(torch.load(saved_model_path))
         self.policy.eval()
         self.policy.cuda()
 
     def process_action(self, action):
         """
-            unnormalize the action to the original scale, prepare for the env step.
-            input: action: (10,), float, np
-            output: action: (10,), float, np
+        input: action: (B, 10) or (10,), float, np
+        output: action: (B, 10) or (10,), float, np
         """
-        action = action * np.expand_dims(self.pose_gripper_scale, axis=0) + np.expand_dims(self.pose_gripper_mean, axis=0)
+        action = np.asarray(action)
+        if action.ndim == 1:
+            action = action[None, :]
+        
+        action = action * self.pose_gripper_scale[None, :] + self.pose_gripper_mean[None, :]
+        
+        if action.shape[0] == 1:
+            action = action.squeeze(0)
+        
         return action
 
     def process_data(self, image_list, proprio_state):
         """
-            process the data for diffusion policy model. 
-            input:  image_list: [ M * (h, w, c)],  uint8, np (M is the number of cameras)
-                    proprio_state: (10,), float, np
-            output: image_data: (M, c, h, w),  normalized in [0,1], float, np
-                    qpos_data: (10)
+        Args:
+            image_list: (M, B, H, W, C) list or array, M is the number of cameras
+            proprio_state: (B, 10) or (10,), np.ndarray
+        Returns:
+            image_data: (B, M, C, H, W), torch.float32
+            qpos_data: (B, 10) or (10,), torch.float32
         """
-        all_cam_images = np.stack(image_list, axis=0)
-        image_data = torch.from_numpy(all_cam_images)
-        image_data = torch.einsum('k h w c -> k c h w', image_data)
+        image_list = np.asarray(image_list)  # (M, B, H, W, C)
+        M, B, H, W, C = image_list.shape
+
+        image_data = torch.from_numpy(image_list)  # (M, B, H, W, C)
+        image_data = image_data.permute(1, 0, 4, 2, 3)  # (B, M, C, H, W)
+        image_data = image_data.view(B * M, C, H, W)
 
         try:
-            k, c, h, w = image_data.shape
             transformations = [
-                # transforms.CenterCrop((int(h * 0.95), int(w * 0.95))),
-                transforms.RandomCrop((int(h * 0.95), int(w * 0.95))),
+                # transforms.CenterCrop((int(H * 0.95), int(W * 0.95))),
+                transforms.RandomCrop((int(H * 0.95), int(W * 0.95))),
                 # transforms.Resize((240, 320), antialias=True),
                 transforms.Resize((224, 224), antialias=True),
             ]
@@ -105,12 +115,17 @@ class DPInference:
         except Exception as e:
             print(e)
 
-        image_data = image_data / 255.0
+        image_data = image_data.view(B, M, C, 224, 224)
+        image_data = image_data.float() / 255.0  # [0,1]
 
-        # qpos = np.array([0.], dtype=float)
-        proprio_state = np.array(proprio_state)
-        proprio_state = (proprio_state - self.proprio_gripper_mean) / self.proprio_gripper_scale
+        proprio_state = np.asarray(proprio_state)
+        if proprio_state.ndim == 1:
+            proprio_state = proprio_state[None, :]  # (1, 10)
+        proprio_state = (proprio_state - self.proprio_gripper_mean[None, :]) / self.proprio_gripper_scale[None, :]
         qpos_data = torch.from_numpy(proprio_state).float()
+
+        if qpos_data.shape[0] == 1:
+            qpos_data = qpos_data.squeeze(0)
 
         return image_data, qpos_data
 
@@ -133,23 +148,26 @@ class DPInference:
         obs = env.get_obs()
         image_list = []
         for cam in self.cameras:
-            image_list.append(obs['sensor_data'][cam]['rgb'].squeeze(0).to(torch.uint8))
+            image_list.append(obs['sensor_data'][cam]['rgb'].squeeze(0).to(torch.uint8).cpu().numpy())
 
         pose:Pose = env.agent.ee_pose_at_robot_base
-        self.pose_at_obs = pose.to_transformation_matrix().squeeze(0)
-
+        self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()
         pose_mat = rotation_conversions.quaternion_to_matrix(pose.q) # pose_mat = quat2mat(pose.q)
-        pose_mat_6 = pose_mat[:, :2].reshape(-1).numpy()
+        pose_mat_6 = pose_mat[:, :2].reshape(pose_mat.shape[0],-1).cpu().numpy()        
+        gripper_width = gym_utils.inv_scale_action(
+                env.agent.robot.get_qpos()[:,-1], env.agent.controller.configs['gripper'].lower, env.agent.controller.configs['gripper'].upper
+            )
         proprio_state = np.concatenate(
             [
-                pose.p.numpy(),
+                pose.p.cpu().numpy(),
                 pose_mat_6,
-                np.array([obs["gripper_width"]]),
-            ]
+                gripper_width.unsqueeze(-1).cpu().numpy(),
+            ],
+            axis = 1,
         )
+
         image_data, qpos_data = self.process_data(image_list, proprio_state)
-        image_data, qpos_data = image_data.cuda().unsqueeze(0), qpos_data.cuda().unsqueeze(0)
-        import pdb;pdb.set_trace()
+        image_data, qpos_data = image_data.cuda(), qpos_data.cuda()
         # print(image_data.shape, qpos_data.shape)
 
         pred_actions = self.policy(qpos_data, image_data).squeeze().cpu()
