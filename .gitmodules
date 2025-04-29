@@ -10,3 +10,6 @@
 [submodule "third_party/octo"]
 	path = third_party/octo
 	url = git@github.com:gen-robot/octo.git
+[submodule "third_party/dppo"]
+	path = third_party/dppo
+	url = git@github.com:pancake-w/dppo.git
