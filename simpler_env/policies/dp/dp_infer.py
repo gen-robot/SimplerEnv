@@ -11,8 +11,6 @@ from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.geometry import rotation_conversions
 from simpler_env.policies.dp.dp_modules.policy import DiffusionPolicy
-from transforms3d.quaternions import qmult, qconjugate, quat2mat, mat2quat
-from simpler_env.policies.dp.dp_modules.utils.math import wrap_to_pi, euler2quat, quat2euler, mat2euler, get_pose_from_rot_pos
 
 class DPInference:
     def __init__(
@@ -72,28 +70,21 @@ class DPInference:
 
     def process_action(self, action):
         """
-        input: action: (B, 10) or (10,), float, np
-        output: action: (B, 10) or (10,), float, np
+        input: action: (B, 10), float, np
+        output: action: (B, 10), float, np
         """
         action = np.asarray(action)
-        if action.ndim == 1:
-            action = action[None, :]
-        
         action = action * self.pose_gripper_scale[None, :] + self.pose_gripper_mean[None, :]
-        
-        if action.shape[0] == 1:
-            action = action.squeeze(0)
-        
         return action
 
     def process_data(self, image_list, proprio_state):
         """
         Args:
             image_list: (M, B, H, W, C) list or array, M is the number of cameras
-            proprio_state: (B, 10) or (10,), np.ndarray
+            proprio_state: (B, 10), np.ndarray
         Returns:
             image_data: (B, M, C, H, W), torch.float32
-            qpos_data: (B, 10) or (10,), torch.float32
+            qpos_data: (B, 10), torch.float32
         """
         image_list = np.asarray(image_list)  # (M, B, H, W, C)
         M, B, H, W, C = image_list.shape
@@ -124,9 +115,6 @@ class DPInference:
         proprio_state = (proprio_state - self.proprio_gripper_mean[None, :]) / self.proprio_gripper_scale[None, :]
         qpos_data = torch.from_numpy(proprio_state).float()
 
-        if qpos_data.shape[0] == 1:
-            qpos_data = qpos_data.squeeze(0)
-
         return image_data, qpos_data
 
     def step(
@@ -148,7 +136,7 @@ class DPInference:
         obs = env.get_obs()
         image_list = []
         for cam in self.cameras:
-            image_list.append(obs['sensor_data'][cam]['rgb'].squeeze(0).to(torch.uint8).cpu().numpy())
+            image_list.append(obs['sensor_data'][cam]['rgb'].to(torch.uint8).cpu().numpy())
 
         pose:Pose = env.agent.ee_pose_at_robot_base
         self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()
@@ -168,12 +156,29 @@ class DPInference:
 
         image_data, qpos_data = self.process_data(image_list, proprio_state)
         image_data, qpos_data = image_data.cuda(), qpos_data.cuda()
-        # print(image_data.shape, qpos_data.shape)
 
-        pred_actions = self.policy(qpos_data, image_data).squeeze().cpu()
+        pred_actions = self.policy(qpos_data, image_data).cpu()
         actions = self.process_action(pred_actions)
-
         return None, actions
 
     def reset(self, task_description: str) -> None:
         pass
+
+from transforms3d.euler import mat2euler
+def batch_mat2euler(mats, axes='sxyz'):
+    """
+    Args:
+        mats: np.ndarray of shape (B, 3, 3)
+        axes: euler order, default 'sxyz'
+    Returns:
+        eulers: np.ndarray of shape (B, 3)
+    """
+    mats = np.asarray(mats)
+    assert mats.ndim == 3 and mats.shape[1:] == (3, 3), f"Input must be (B, 3, 3), got {mats.shape}"
+
+    eulers = []
+    for i in range(mats.shape[0]):
+        euler = mat2euler(mats[i], axes=axes)  # (3,)
+        eulers.append(euler)
+
+    return np.stack(eulers, axis=0)  # (B, 3)

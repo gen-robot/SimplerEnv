@@ -168,8 +168,8 @@ def main():
             env = env, enable_eef_obs=True, enable_qvel_obs=False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
         )
     elif args.model == "diffusion_policy":
-        from simpler_env.policies.dp.dp_infer import DPInference
-        from simpler_env.policies.dp.dp_modules.utils.math import mat2euler, get_pose_from_rot_pos, get_pose_from_rot_pos_batch
+        from simpler_env.policies.dp.dp_infer import DPInference, batch_mat2euler
+        from simpler_env.policies.dp.dp_modules.utils.math import get_pose_from_rot_pos_batch
         model = DPInference(args.obs_normalize_params_path, args.ckpt_path)
     else:
         raise NotImplementedError
@@ -197,6 +197,7 @@ def main():
 
         # env and policy reset
         env_reset_options = {
+            "reconfigure": True,
             "episode_id": torch.arange(args.num_envs) + eps_count
         }
         obs, info = env.reset(seed=seed, options=env_reset_options)
@@ -232,14 +233,18 @@ def main():
 
                 pos = action[:, :3] # [B, 3]
                 gripper_width = action[:, -1, np.newaxis] # [B, 1]
-                init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos)
+                # init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos)
+                init_to_desired_pose = get_pose_from_rot_pos_batch(mat, pos)
+                # pose_action = np.concatenate([pos,
+                #             matrix_to_euler_angles(torch.from_numpy(mat),"XYZ").numpy(),
+                #             gripper_width], axis=1) # [B, 7]
                 pose_action = np.concatenate([init_to_desired_pose[:, :3, 3],
                             matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
                             gripper_width], axis=1) # [B, 7]
                 # step
                 start_time = time.time()
                 obs, reward, terminated, truncated, info = env.step(pose_action)
-                print("delta action:", action)
+                print("action:", action)
                 obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
                 info = {k: v.cpu().numpy() for k, v in info.items()}
                 truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
