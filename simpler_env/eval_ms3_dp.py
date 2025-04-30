@@ -219,17 +219,17 @@ def main():
             # only for diffusion policy
             _, raw_action = model.step(env, obs_image, instruction) # actually only env is needed
             timers["inference"] += time.time() - start_time
-            for i in range(4): # dp generate 8
-                B = raw_action.shape[0]
+           
+            for i in range(10): # dp generate 8
+                B = raw_action.shape[0] # B indicates the environment number
                 action = raw_action[:,i,:] # [B, 10]
                 mat_6 = action[:,3:9].reshape(action.shape[0],3,2) # [B ,3, 2]
                 mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0]) # [B, 3]
                 mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1]) # [B, 3]
                 z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1]) # [B, 3]
-                z_vec = z_vec[:, :, np.newaxis]  # (batch_size, 3, 1)
+                z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
 
-                mat = np.concatenate([mat_6, z_vec], axis=2)
-                # assert mat.shape == (B, 3, 3)
+                mat = np.concatenate([mat_6, z_vec], axis=2) # [B, 3, 3]
 
                 pos = action[:, :3] # [B, 3]
                 gripper_width = action[:, -1, np.newaxis] # [B, 1]
@@ -244,7 +244,7 @@ def main():
                 # step
                 start_time = time.time()
                 obs, reward, terminated, truncated, info = env.step(pose_action)
-                print("action:", action)
+                print(f"step {elapsed_steps} ee_pose_action:", pose_action)
                 obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
                 info = {k: v.cpu().numpy() for k, v in info.items()}
                 truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
@@ -253,7 +253,7 @@ def main():
 
                 # print info
                 info_dict = {k: v.mean().tolist() for k, v in info.items()}
-                print(f"step {elapsed_steps}: {info_dict}")
+                # print(f"step {elapsed_steps}: {info_dict}")
 
                 # data dump: image, action, info
                 for i in range(args.num_envs):

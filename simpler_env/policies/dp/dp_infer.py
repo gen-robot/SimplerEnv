@@ -55,7 +55,7 @@ class DPInference:
             'action_dim': 10,
             'observation_horizon': 1,
             'action_horizon': 1,
-            'prediction_horizon': 8, # used in training
+            'prediction_horizon': 20, # used in training
 
             'global_obs_dim': 10,
             'num_inference_timesteps': 10,
@@ -68,7 +68,7 @@ class DPInference:
         self.policy.eval()
         self.policy.cuda()
 
-    def process_action(self, action):
+    def denormalize_action(self, action):
         """
         input: action: (B, 10), float, np
         output: action: (B, 10), float, np
@@ -158,7 +158,7 @@ class DPInference:
         image_data, qpos_data = image_data.cuda(), qpos_data.cuda()
 
         pred_actions = self.policy(qpos_data, image_data).cpu()
-        actions = self.process_action(pred_actions)
+        actions = self.denormalize_action(pred_actions)
         return None, actions
 
     def reset(self, task_description: str) -> None:
