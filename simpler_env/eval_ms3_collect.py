@@ -309,7 +309,7 @@ def main():
 
     mean_metrics = {k: np.mean(v) for k, v in eval_metrics.items()}
     mean_metrics["total_episodes"] = eps_count
-    mean_metrics["total_steos"] = eps_count * args.max_episode_len
+    mean_metrics["total_steps"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
     mean_metrics["action_scale"] = args.action_scale
 

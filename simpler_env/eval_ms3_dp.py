@@ -235,9 +235,6 @@ def main():
                 gripper_width = action[:, -1, np.newaxis] # [B, 1]
                 # init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos)
                 init_to_desired_pose = get_pose_from_rot_pos_batch(mat, pos)
-                # pose_action = np.concatenate([pos,
-                #             matrix_to_euler_angles(torch.from_numpy(mat),"XYZ").numpy(),
-                #             gripper_width], axis=1) # [B, 7]
                 pose_action = np.concatenate([init_to_desired_pose[:, :3, 3],
                             matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
                             gripper_width], axis=1) # [B, 7]
@@ -332,7 +329,7 @@ def main():
 
     mean_metrics = {k: np.mean(v) for k, v in eval_metrics.items()}
     mean_metrics["total_episodes"] = eps_count
-    mean_metrics["total_steos"] = eps_count * args.max_episode_len
+    mean_metrics["total_steps"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
     mean_metrics["action_scale"] = args.action_scale
 

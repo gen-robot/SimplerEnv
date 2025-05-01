@@ -140,8 +140,8 @@ class DPInference:
 
         pose:Pose = env.agent.ee_pose_at_robot_base
         self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()
-        pose_mat = rotation_conversions.quaternion_to_matrix(pose.q) # pose_mat = quat2mat(pose.q)
-        pose_mat_6 = pose_mat[:, :2].reshape(pose_mat.shape[0],-1).cpu().numpy()        
+        pose_mat = rotation_conversions.quaternion_to_matrix(pose.q) # pose_mat = quat2mat(pose.q) w,x,y,z
+        pose_mat_6 = pose_mat[:, :, :2].reshape(pose_mat.shape[0],-1).cpu().numpy()    
         gripper_width = gym_utils.inv_scale_action(
                 env.agent.robot.get_qpos()[:,-1], env.agent.controller.configs['gripper'].lower, env.agent.controller.configs['gripper'].upper
             )
@@ -153,7 +153,6 @@ class DPInference:
             ],
             axis = 1,
         )
-
         image_data, qpos_data = self.process_data(image_list, proprio_state)
         image_data, qpos_data = image_data.cuda(), qpos_data.cuda()
 
