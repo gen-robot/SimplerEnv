@@ -12,6 +12,7 @@ from mani_skill.utils.structs.pose import Pose
 from mani_skill.utils.geometry import rotation_conversions
 from simpler_env.policies.dp.dp_modules.policy import DiffusionPolicy
 
+# with diffusers verison 0.11.1
 class DPInference:
     def __init__(
         self,
@@ -142,9 +143,7 @@ class DPInference:
         self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()
         pose_mat = rotation_conversions.quaternion_to_matrix(pose.q) # pose_mat = quat2mat(pose.q) w,x,y,z
         pose_mat_6 = pose_mat[:, :, :2].reshape(pose_mat.shape[0],-1).cpu().numpy()    
-        gripper_width = gym_utils.inv_scale_action(
-                env.agent.robot.get_qpos()[:,-1], env.agent.controller.configs['gripper'].lower, env.agent.controller.configs['gripper'].upper
-            )
+        gripper_width = gym_utils.inv_scale_action(env.agent.robot.get_qpos()[:,-1], env.agent.controller.configs['gripper'].lower, env.agent.controller.configs['gripper'].upper)
         proprio_state = np.concatenate(
             [
                 pose.p.cpu().numpy(),

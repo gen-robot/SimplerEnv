@@ -7,7 +7,7 @@ import numpy as np
 from typing import Annotated, Optional
 
 import torch
-import tree
+import tree # dm_tree
 from mani_skill.utils import common
 from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
@@ -168,9 +168,12 @@ def main():
             env = env, enable_eef_obs=True, enable_qvel_obs=False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
         )
     elif args.model == "diffusion_policy":
-        from simpler_env.policies.dp.dp_infer import DPInference, batch_mat2euler
+        from simpler_env.policies.dp.dp_infer import DPInference
         from simpler_env.policies.dp.dp_modules.utils.math import get_pose_from_rot_pos_batch
         model = DPInference(args.obs_normalize_params_path, args.ckpt_path)
+    elif args.model == "cql":
+        from simpler_env.policies.cql.cql_infer import CQLInference
+        model = CQLInference(obs_normalize_params_path=args.obs_normalize_params_path, saved_model_path=args.ckpt_path)
     else:
         raise NotImplementedError
 
@@ -217,37 +220,42 @@ def main():
         # inference
             start_time = time.time()
             # only for diffusion policy
-            _, raw_action = model.step(env, obs_image, instruction) # actually only env is needed
+            raw_actions, actions = model.step(env, obs_image, instruction) # actually only env is needed
             timers["inference"] += time.time() - start_time
-           
-            for i in range(10): # dp generate 8
-                B = raw_action.shape[0] # B indicates the environment number
-                action = raw_action[:,i,:] # [B, 10]
-                mat_6 = action[:,3:9].reshape(action.shape[0],3,2) # [B ,3, 2]
-                mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0]) # [B, 3]
-                mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1]) # [B, 3]
-                z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1]) # [B, 3]
-                z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
 
-                mat = np.concatenate([mat_6, z_vec], axis=2) # [B, 3, 3]
+            actions_list = []
+            if args.model == "diffusion_policy":
+                for i in range(10): # dp generate 8
+                    B = actions.shape[0] # B indicates the environment number
+                    action = actions[:,i,:] # [B, 10]
+                    mat_6 = action[:,3:9].reshape(action.shape[0],3,2) # [B ,3, 2]
+                    mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0]) # [B, 3]
+                    mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1]) # [B, 3]
+                    z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1]) # [B, 3]
+                    z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+                    mat = np.concatenate([mat_6, z_vec], axis=2) # [B, 3, 3]
+                    pos = action[:, :3] # [B, 3]
+                    gripper_width = action[:, -1, np.newaxis] # [B, 1]
+                    # init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos)
+                    init_to_desired_pose = get_pose_from_rot_pos_batch(mat, pos)
+                    pose_action = np.concatenate([init_to_desired_pose[:, :3, 3],
+                                matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
+                                gripper_width], axis=1) # [B, 7]
+                    actions_list.append(pose_action)
+            else:
+                actions_list.append(actions)
 
-                pos = action[:, :3] # [B, 3]
-                gripper_width = action[:, -1, np.newaxis] # [B, 1]
-                # init_to_desired_pose = model.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos)
-                init_to_desired_pose = get_pose_from_rot_pos_batch(mat, pos)
-                pose_action = np.concatenate([init_to_desired_pose[:, :3, 3],
-                            matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
-                            gripper_width], axis=1) # [B, 7]
+            for i in range(len(actions_list)):
                 # step
                 start_time = time.time()
-                obs, reward, terminated, truncated, info = env.step(pose_action)
-                print(f"step {elapsed_steps} ee_pose_action:", pose_action)
+                action = actions_list[i]
+                obs, reward, terminated, truncated, info = env.step(action)
+                print(f"step {elapsed_steps} ee_pose_action:", action)
                 obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
                 info = {k: v.cpu().numpy() for k, v in info.items()}
                 truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
 
                 timers["env.step"] += time.time() - start_time
-
                 # print info
                 info_dict = {k: v.mean().tolist() for k, v in info.items()}
                 # print(f"step {elapsed_steps}: {info_dict}")
@@ -255,12 +263,11 @@ def main():
                 # data dump: image, action, info
                 for i in range(args.num_envs):
                     log_image = obs_image[i].cpu().numpy()
-                    log_action = pose_action[i].tolist()
+                    log_action = action[i].tolist()
                     log_info = {k: v[i].tolist() for k, v in info.items()}
                     datas[i]["image"].append(log_image)
                     datas[i]["action"].append(log_action)
                     datas[i]["info"].append(log_info)
-
                 # add count
                 obs_image = obs_image_new
                 elapsed_steps += 1
