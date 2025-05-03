@@ -3,11 +3,9 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from transforms3d.euler import euler2axangle
-from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers import AutoModelForVision2Seq, AutoProcessor, AutoTokenizer
 from transformers import AutoConfig, AutoImageProcessor
-from PIL import Image
 import torch
-import cv2 as cv
 
 from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
 from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
@@ -33,6 +31,12 @@ class OpenVLAInference:
         elif policy_setup == "google_robot":
             unnorm_key = "fractal20220817_data" if unnorm_key is None else unnorm_key
             self.sticky_gripper_num_repeat = 15
+        elif "panda" in policy_setup:
+            if "ZijianZhang" in saved_model_path:
+                unnorm_key = "Simpler" if unnorm_key is None else unnorm_key
+            else:
+                unnorm_key = "bridge_orig" if unnorm_key is None else unnorm_key
+            self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(f"see huggingface config.json file.")
         self.policy_setup = policy_setup
@@ -45,7 +49,15 @@ class OpenVLAInference:
         AutoProcessor.register(OpenVLAConfig, PrismaticProcessor)
         AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
 
-        self.processor = PrismaticProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
+        image_processor = PrismaticImageProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained("openvla/openvla-7b",
+                                                  trust_remote_code=True, padding_side="left")
+        self.processor = PrismaticProcessor.from_pretrained(
+            "openvla/openvla-7b",
+            image_processor=image_processor,
+            tokenizer=tokenizer,
+            trust_remote_code=True
+        )
         self.vla = OpenVLAForActionPrediction.from_pretrained(
             saved_model_path,
             attn_implementation="flash_attention_2",  # [Optional] Requires `flash_attn`
@@ -80,10 +92,10 @@ class OpenVLAInference:
 
     def step(
         self, images: torch.Tensor, task_description: list[str]
-    ) -> tuple[dict[str, np.ndarray], dict[str, torch.Tensor]]:
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         """
         Input:
-            image: np.ndarray of shape (H, W, 3), uint8
+            image: torch.Tensor of shape (H, W, 3), uint8
             task_description: Optional[str], task description; if different from previous task description, policy state is reset
         Output:
             raw_action: dict; raw policy action output
@@ -94,16 +106,21 @@ class OpenVLAInference:
                 - 'terminate_episode': np.ndarray of shape (1,), 1 if episode should be terminated, 0 otherwise
         """
 
-        # mychange
+        assert isinstance(images, torch.Tensor)
+        assert len(images.shape) == 4
+        assert images.shape[3] == 3
+        assert images.dtype == torch.uint8
+
+        assert isinstance(task_description, list)
+        assert isinstance(task_description[0], str)
+        assert images.shape[0] == len(task_description)
+        task_prompt = [f"In: What action should the robot take to {t.lower()}?\nOut: " for t in task_description]
+
         batch_size = images.shape[0]
-        assert batch_size == len(task_description)
+        images = images.permute(0, 3, 1, 2) # [B, C, H, W]
+        images = images.to("cuda:0", dtype=torch.bfloat16)
 
-        images = images.cpu().numpy()
-        image_post = [Image.fromarray(self._resize_image(img)) for img in images]
-        prompt = [f"In: What action should the robot take to {ins.lower()}?\nOut:" for ins in task_description]
-
-
-        inputs = self.processor(prompt, image_post).to("cuda:0", dtype=torch.bfloat16)
+        inputs = self.processor(task_prompt, images).to("cuda:0", dtype=torch.bfloat16)
 
         # input_ids: torch.Size([1, 6])
         # attention_mask: torch.Size([1, 6])
@@ -153,6 +170,8 @@ class OpenVLAInference:
 
         elif self.policy_setup == "widowx_bridge":
             action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0 # [B, 1]
+        elif self.policy_setup == "panda":
+            action["gripper"] = 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0 # [B, 1]
 
         action["terminate_episode"] = np.array([0.0] * batch_size).reshape(-1, 1) # [B, 1]
 
@@ -160,13 +179,6 @@ class OpenVLAInference:
         action = {k: torch.tensor(v, dtype=torch.float32) for k, v in action.items()}
 
         return raw_action, action
-
-    def _resize_image(self, image: np.ndarray) -> np.ndarray:
-        # print(image.shape) # (480, 640, 3)
-        # print(self.image_size) # [224, 224]
-
-        image = cv.resize(image, tuple(self.image_size), interpolation=cv.INTER_AREA)
-        return image
 
     def visualize_epoch(
         self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str

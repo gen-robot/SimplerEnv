@@ -35,6 +35,8 @@ class Args:
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1"
     """The environment ID of the task you want to simulate. Can be one of
     PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
+    # for Widowx in bridgev2: PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1 and
+    # for panda in bridgev2: PandaPutCarrotOnPlateInScene-v1, PandaPutSpoonOnTableClothInScene-v1, PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1, PandaPutEggplantInBasketScene-v1"""
 
     shader: str = "default"  # default, rt
 
@@ -46,7 +48,7 @@ class Args:
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
-    max_episode_len: int = 100
+    max_episode_len: int = 60
     """Max episode length"""
 
     record_dir: str = "videos"
@@ -76,7 +78,9 @@ class Args:
     debug: bool = False
 
     # openvla specific
-    openvla_unnorm_key: str = None
+    openvla_unnorm_key: Optional[str] = None
+
+    policy_setup: str = "widowx_bridge"
 
 
 def get_robot_control_mode(robot: str):
@@ -84,6 +88,8 @@ def get_robot_control_mode(robot: str):
         return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
     elif "widowx" in robot:
         return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
+    elif "panda" in robot:
+        return "pd_ee_target_delta_pose"
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
 
@@ -95,7 +101,7 @@ def main():
 
     # Setup up the policy inference model
     print(f"model is {args.model}")
-    policy_setup = "widowx_bridge"
+    policy_setup = args.policy_setup
 
     env: BaseEnv = gym.make(
         args.env_id,
@@ -119,7 +125,7 @@ def main():
         from simpler_env.policies.rt1.rt1_model import RT1Inference
         model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
     elif args.model == "openvla":
-        from simpler_env.policies.openvla.openvla_model_ms3 import OpenVLAInference
+        from simpler_env.policies.openvla.openvla_infer import OpenVLAInference
         model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.,
                                  unnorm_key=args.openvla_unnorm_key)
     elif args.model == "cogact":
@@ -134,6 +140,11 @@ def main():
     elif args.model == "spatialvla":
         from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
         model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
+    elif args.model == "rdt":
+        from simpler_env.policies.rdt.rdt_model import RDTInference
+        model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
+            env = env, enable_eef_obs=True, enable_qvel_obs=False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
+        )
     else:
         raise NotImplementedError
 
@@ -145,6 +156,7 @@ def main():
 
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
     total_start_time = time.time()
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
 
     while eps_count < args.num_episodes:
         seed = args.seed + eps_count
@@ -175,9 +187,12 @@ def main():
         elapsed_steps = 0
         predicted_terminated, truncated = False, False
         while not (predicted_terminated or truncated):
-            # inference
+        # inference
             start_time = time.time()
-
+            # if args.model == 'rdt':
+            #     raw_action, action = model.step(obs, instruction)
+            #     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]),
+            #                         torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
             raw_action, action = model.step(obs_image, instruction)
             action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
             # action = env.action_space.sample() # random
@@ -187,6 +202,7 @@ def main():
             # step
             start_time = time.time()
             obs, reward, terminated, truncated, info = env.step(action)
+            # print("delta action:", action)
             obs_image_new = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
             info = {k: v.cpu().numpy() for k, v in info.items()}
             truncated = bool(truncated.any())  # note that all envs truncate and terminate at the same time.
@@ -217,7 +233,7 @@ def main():
 
         # save video
         if args.save_video:
-            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}_{args.env_id}"
+            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
             exp_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
@@ -235,7 +251,7 @@ def main():
 
         # save data
         if args.save_data:
-            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}_{args.env_id}"
+            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
             exp_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
@@ -268,9 +284,11 @@ def main():
     mean_metrics["total_steos"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
 
+    exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
+    exp_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = exp_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
-
+    print(f"Evaluation complete. Results saved to {exp_dir}. Metrics saved to {metrics_path}")
 
 if __name__ == "__main__":
     main()

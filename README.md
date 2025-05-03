@@ -64,8 +64,21 @@ git clone https://github.com/aiming-lab/GRAPE.git
 
 git clone https://github.com/kpertsch/rlds_dataset_builder.git
 cd rlds_dataset_builder
+
+# default
 conda env create -f environment_ubuntu.yml
 conda activate rlds_env
+
+# conda 
+conda create -y -n rlds_env python=3.10
+conda activate rlds_env
+pip install tensorflow==2.13.0 tensorflow_datasets==4.9.2 tensorflow_hub==0.14.0 \
+  apache_beam==2.49.0 matplotlib==3.7.2 plotly==5.15.0 wandb==0.15.6 \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+pip install --upgrade tensorflow_datasets etils
+pip install mlcroissant
+
+
 ```
 
 ### octo
