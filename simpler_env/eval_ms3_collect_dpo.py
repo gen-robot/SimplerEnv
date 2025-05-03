@@ -95,6 +95,7 @@ def main():
     args = tyro.cli(Args)
     if args.seed is not None:
         np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
 
     # Setup up the policy inference model
     print(f"model is {args.model}")
@@ -155,10 +156,9 @@ def main():
     for idx_episode in range(args.num_episodes):
         has_success, has_fail = False, False
         idx_trail = 0
+        ep_id = torch.randint(1000000000, size=(args.num_envs,), device=env.device)
 
         while not (has_success and has_fail) or idx_trail < args.num_trails:
-            seed = args.seed + idx_episode * args.num_trails + idx_trail
-
             # data dump
             datas = [{
                 "image": [],  # obs_t: [0, T-1]
@@ -168,12 +168,10 @@ def main():
             } for idx in range(args.num_envs)]
 
             # env and policy reset
-            env_reset_options = {
-                "episode_id": torch.tensor([idx_episode] * args.num_envs),  # same episode id in one episode
-            }
-            obs, info = env.reset(seed=seed, options=env_reset_options)
+            obs, info = env.reset(options={"episode_id": ep_id})
             obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
             instruction = env.unwrapped.get_language_instruction()
+            assert all([ins == instruction[0] for ins in instruction])
             model.reset(instruction)
 
             print("instruction[0]:", instruction[0])
@@ -228,7 +226,7 @@ def main():
 
             # save data
             for i in range(args.num_envs):
-                success = int(np.sum([d["success"] for d in datas[i]["info"]]) >= 6)
+                success = datas[i]["info"][-1]["success"]
                 has_success |= success
                 has_fail |= not success
 
