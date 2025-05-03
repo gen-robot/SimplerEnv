@@ -48,7 +48,7 @@ class Args:
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
-    max_episode_len: int = 100
+    max_episode_len: int = 80
     """Max episode length"""
 
     record_dir: str = os.path.join(SIMPLER_ROOT_DIR,"videos")
@@ -214,7 +214,7 @@ def main():
             start_time = time.time()
             # if args.model == 'rdt':
             #     raw_action, action = model.step(obs, instruction)
-            #     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]), 
+            #     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]),
             #                         torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
             raw_action, action = model.step(obs_image, instruction)
             action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)

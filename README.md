@@ -67,8 +67,21 @@ git clone https://github.com/aiming-lab/GRAPE.git
 
 git clone https://github.com/kpertsch/rlds_dataset_builder.git
 cd rlds_dataset_builder
+
+# default
 conda env create -f environment_ubuntu.yml
 conda activate rlds_env
+
+# conda 
+conda create -y -n rlds_env python=3.10
+conda activate rlds_env
+pip install tensorflow==2.13.0 tensorflow_datasets==4.9.2 tensorflow_hub==0.14.0 \
+  apache_beam==2.49.0 matplotlib==3.7.2 plotly==5.15.0 wandb==0.15.6 \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+pip install --upgrade tensorflow_datasets etils
+pip install mlcroissant
+
+
 ```
 
 ### octo
@@ -89,40 +102,21 @@ huggingface-cli download rail-berkeley/octo-base
 ### openvla maniskill3
 
 ```bash
-# PutSpoonOnTableClothInScene-v1
-# PutCarrotOnPlateInScene-v1
-# StackGreenCubeOnYellowCubeBakedTexInScene-v1
-# PutEggplantInBasketScene-v1
-
-
-# grape
 #ckpt_path="openvla/openvla-7b"
-#unnorm_key="bridge_orig"
+ckpt_path="../openvla/checkpoints/spc148f/steps_2000/merged_002000"
+unnorm_key="spc148f"
 
-ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
-#ckpt_path="../openvla/results/grape/adapter/openvla-7b+grape_simpler_dpos_dataset+b1+lr-2e-05+lora-r32+dropout-0.0/d1121_check_merged"
-unnorm_key="Simpler"
-#unnorm_key="bridge_orig"
-
-#ckpt_path="../openvla/checkpoints/grape_simpler_sft_dataset_268/steps_4000/merged_004000"
-#unnorm_key="grape_simpler_sft_dataset_268"
-CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect.py \
-  --model="openvla" --ckpt_path="${ckpt_path}" \
-  -e "PutCarrotOnPlateInScene-v1" -s 0 --num-episodes 50 --num-envs 50 --save-video \
-  --openvla_unnorm_key="${unnorm_key}"
-
-# dpo
-# "PutSpoonOnTableClothInScene-v1" 
-ckpt_path="ZijianZhang/OpenVLA-7B-SFT-Simpler"
-for task in "StackGreenCubeOnYellowCubeBakedTexInScene-v1" "PutEggplantInBasketScene-v1"; do
-  CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/eval_ms3_collect_dpo.py \
-    --model="openvla" --ckpt_path="${ckpt_path}" -e "${task}" --num-envs 4 \
-    --openvla_unnorm_key="Simpler"
+for tasks in "PutOnPlateInScene25Carrot-v1" "PutOnPlateInScene25Instruct-v1" "PutOnPlateInScene25Overlay-v1" ; do
+  for carrots in "1" "4" "16" ; do
+    CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false \
+      python simpler_env/eval_ms3_collect_dpo.py \
+        --ckpt_path="${ckpt_path}" -e "${task}" \
+        --unnorm_key="${unnorm_key}" \
+        --num_train_carrots=$carrots
+  done
 done
-  
-# ppo
-CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_PREALLOCATE=false python simpler_env/train_ms3_ppo.py
 
+# ppo
 flameprof --format=svg --threshold=0.1 images/perf/perf.bin > images/perf/perf.svg
 ```
 
