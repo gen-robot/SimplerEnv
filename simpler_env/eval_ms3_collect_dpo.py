@@ -38,12 +38,12 @@ class Args:
 
     shader: str = "default"  # default, rt
 
-    num_envs: int = 1
+    num_envs: int = 8
     """Number of environments to run. With more than 1 environment the environment will use the GPU backend 
     which runs faster enabling faster large-scale evaluations. Note that the overall behavior of the simulation
     will be slightly different between CPU and GPU backends."""
 
-    num_episodes: int = 23
+    num_episodes: int = 32
     """Number of episodes to run and record evaluation metrics over"""
 
     max_episode_len: int = 80
@@ -58,17 +58,11 @@ class Args:
     record_dir: str = "videos"
     """The directory to save videos and results"""
 
-    model: Optional[str] = None
-    """The model to evaluate on the given environment. Can be one of octo-base, octo-small, rt-1x. If not given, random actions are sampled."""
-
     ckpt_path: str = ""
     """Checkpoint path for models. Only used for RT models"""
 
     seed: Annotated[int, tyro.conf.arg(aliases=["-s"])] = 0
     """Seed the model and environment. Default seed is 0"""
-
-    reset_by_episode_id: bool = True
-    """Whether to reset by fixed episode ids instead of random sampling initial states."""
 
     info_on_video: bool = False
     """Whether to write info text onto the video"""
@@ -79,7 +73,7 @@ class Args:
     debug: bool = False
 
     # openvla specific
-    openvla_unnorm_key: Optional[str] = None
+    num_train_carrots: int = 16
 
 
 def get_robot_control_mode(robot: str):
@@ -98,7 +92,6 @@ def main():
         torch.manual_seed(args.seed)
 
     # Setup up the policy inference model
-    print(f"model is {args.model}")
     policy_setup = "widowx_bridge"
 
     env: BaseEnv = gym.make(
@@ -116,30 +109,9 @@ def main():
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
-    if args.model == "octo-base" or args.model == "octo-small":
-        from simpler_env.policies.octo.octo_model import OctoInference
-        model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
-    elif args.model == "rt-1x":
-        from simpler_env.policies.rt1.rt1_model import RT1Inference
-        model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
-    elif args.model == "openvla":
-        from simpler_env.policies.openvla.openvla_infer import OpenVLAInference
-        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.,
-                                 unnorm_key=args.openvla_unnorm_key)
-    elif args.model == "cogact":
-        from simpler_env.policies.sim_cogact import CogACTInference
-        model = CogACTInference(
-            saved_model_path=args.ckpt_path,  # e.g., CogACT/CogACT-Base
-            policy_setup=policy_setup,
-            action_scale=1.0,
-            action_model_type='DiT-L',
-            cfg_scale=1.5  # cfg from 1.5 to 7 also performs well
-        )
-    elif args.model == "spatialvla":
-        from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
-        model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
-    else:
-        raise NotImplementedError
+    from simpler_env.policies.openvla.openvla_infer import OpenVLAInference
+    model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0,
+                             unnorm_key="bridge_orig")
 
     model_name = Path(args.ckpt_path).name if args.ckpt_path else "random"
     exp_dir = Path(args.record_dir) / f"dpo/{model_name}_{args.env_id}"
@@ -147,7 +119,6 @@ def main():
 
     eval_metrics = defaultdict(list)
 
-    print(f"Running Real2Sim Evaluation of model {args.model} on environment {args.env_id}")
     print(f"Using {args.num_envs} environments on the {sim_backend} simulation backend")
 
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
@@ -168,7 +139,12 @@ def main():
             } for idx in range(args.num_envs)]
 
             # env and policy reset
-            obs, info = env.reset(options={"episode_id": ep_id})
+            options = {
+                "episode_id": ep_id,
+                "obj_set": "train", # train, test, all
+                "num_train_carrots": args.num_train_carrots
+            }
+            obs, info = env.reset(options=options)
             obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)
             instruction = env.unwrapped.get_language_instruction()
             assert all([ins == instruction[0] for ins in instruction])
