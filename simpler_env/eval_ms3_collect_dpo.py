@@ -46,7 +46,7 @@ class Args:
     num_episodes: int = 23
     """Number of episodes to run and record evaluation metrics over"""
 
-    max_episode_len: int = 60
+    max_episode_len: int = 80
     """Max episode length"""
 
     num_trails: int = 5

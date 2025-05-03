@@ -48,7 +48,7 @@ class Args:
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
-    max_episode_len: int = 60
+    max_episode_len: int = 80
     """Max episode length"""
 
     record_dir: str = "videos"
