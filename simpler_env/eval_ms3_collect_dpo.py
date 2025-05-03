@@ -156,7 +156,7 @@ def main():
     for idx_episode in range(args.num_episodes):
         has_success, has_fail = False, False
         idx_trail = 0
-        ep_id = torch.randint(1000000000, size=(args.num_envs,), device=env.device)
+        ep_id = torch.randint(1000000000, size=(1,), device=env.device).repeat(args.num_envs)
 
         while not (has_success and has_fail) or idx_trail < args.num_trails:
             # data dump
