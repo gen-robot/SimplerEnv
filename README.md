@@ -99,17 +99,20 @@ huggingface-cli download rail-berkeley/octo-base
 ### openvla maniskill3
 
 ```bash
+#ckpt_path="openvla/openvla-7b"
+ckpt_path="../openvla/checkpoints/spc148f/steps_2000/merged_002000"
+unnorm_key="spc148f"
 
-# dpo
-ckpt_path="openvla/openvla-7b"
-task="PutOnPlateInScene25Overlay-v1" # PutOnPlateInScene25Carrot, PutOnPlateInScene25Instruct, PutOnPlateInScene25Overlay
-carrots=16 # 1, 4, 16
+for tasks in "PutOnPlateInScene25Carrot-v1" "PutOnPlateInScene25Instruct-v1" "PutOnPlateInScene25Overlay-v1" ; do
+  for carrots in "1" "4" "16" ; do
+    CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false \
+      python simpler_env/eval_ms3_collect_dpo.py \
+        --ckpt_path="${ckpt_path}" -e "${task}" \
+        --unnorm_key="${unnorm_key}" \
+        --num_train_carrots=$carrots
+  done
+done
 
-CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-python simpler_env/eval_ms3_collect_dpo.py \
-    --ckpt_path="${ckpt_path}" -e "${task}" \
-    --num_train_carrots=$carrots
-  
 # ppo
 flameprof --format=svg --threshold=0.1 images/perf/perf.bin > images/perf/perf.svg
 ```
