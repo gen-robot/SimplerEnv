@@ -64,7 +64,7 @@ class Args:
     info_on_video: bool = False
     """Whether to write info text onto the video"""
 
-    save_video: bool = True
+    save_video: bool = False
     """Whether to save videos"""
 
     debug: bool = False
@@ -111,8 +111,9 @@ def main():
     model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0,
                              unnorm_key=args.unnorm_key)
 
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
     model_name = Path(args.ckpt_path).name if args.ckpt_path else "random"
-    exp_dir = Path(args.record_dir) / f"dpo/{model_name}_{args.env_id}"
+    exp_dir = Path(args.record_dir) / f"dpo/{model_name}_{args.env_id}" / f"train_carrots_num_{args.num_train_carrots}" / timestamp
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     eval_metrics = defaultdict(list)
@@ -175,7 +176,7 @@ def main():
 
             # print info
             info_dict = {k: v.mean().tolist() for k, v in info.items()}
-            print(f"step {elapsed_steps}: {info_dict}")
+            # print(f"step {elapsed_steps}: {info_dict}")
 
             # data dump: image, action, info
             for i in range(args.num_envs):
@@ -208,11 +209,17 @@ def main():
 
             folder = exp_dir / f"episode_{idx_episode:0>3d}"
             folder.mkdir(parents=True, exist_ok=True)
-            path_name = folder / f"trail_{i:0>4d}-g_{is_grasp}-cg_{cons_grasp}-s_{success}-reward_{reward:.1f}.npy"
+            file_name = f"trail_{i:0>4d}-g_{is_grasp}-cg_{cons_grasp}-s_{success}-reward_{reward:.1f}"
+            path_name = folder / file_name
 
             res = datas[i].copy()
             res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
             np.save(path_name, res)
+
+            # save video
+            if args.save_video:
+                images = datas[i]["image"]
+                images_to_video(images, str(folder), "video_"+file_name, fps=10, verbose=True)
 
         # metrics log and print
         for k, v in info.items():

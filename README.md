@@ -103,16 +103,33 @@ huggingface-cli download rail-berkeley/octo-base
 
 ```bash
 #ckpt_path="openvla/openvla-7b"
-ckpt_path="../openvla/checkpoints/spc148f/steps_2000/merged_002000"
+ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/spc148f/steps_2000/merged_002000"
 unnorm_key="spc148f"
-
-for tasks in "PutOnPlateInScene25Carrot-v1" "PutOnPlateInScene25Instruct-v1" "PutOnPlateInScene25Overlay-v1" ; do
-  for carrots in "1" "4" "16" ; do
-    CUDA_VISIBLE_DEVICES=7 XLA_PYTHON_CLIENT_PREALLOCATE=false \
+for tasks in "PutOnPlateInScene25Carrot-v1" "PutOnPlateInScene25Overlay-v1" ; do # "PutOnPlateInScene25Instruct-v1" 
+  for carrots in "1" "4" "16" ; do 
+    CUDA_VISIBLE_DEVICES=3 XLA_PYTHON_CLIENT_PREALLOCATE=false \
       python simpler_env/eval_ms3_collect_dpo.py \
-        --ckpt_path="${ckpt_path}" -e "${task}" \
+        --ckpt_path="${ckpt_path}" -e "${tasks}" \
         --unnorm_key="${unnorm_key}" \
-        --num_train_carrots=$carrots
+        --num_train_carrots=$carrots \
+        --max_episode_len 80 \
+        --num_episodes 256 \
+        --save_video
+  done
+done
+
+ckpt_path="/nvme_data/bingwen/Documents/arm_ws/SimplerEnv/third_party/openvla/checkpoints/spc148f/steps_2000/merged_002000"
+unnorm_key="spc148f"
+for tasks in "PutOnPlateInScene25Instruct-v1" ; do # 
+  for carrots in "1" "4" ; do 
+    CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false \
+      python simpler_env/eval_ms3_collect_dpo.py \
+        --ckpt_path="${ckpt_path}" -e "${tasks}" \
+        --unnorm_key="${unnorm_key}" \
+        --num_train_carrots=$carrots \
+        --max_episode_len 80 \
+        --num_episodes 256 \
+        --save_video
   done
 done
 
