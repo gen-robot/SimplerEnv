@@ -5,11 +5,9 @@ import signal
 import time
 import numpy as np
 from typing import Annotated, Optional
-
+import re
+import cv2
 import torch
-import tree
-from mani_skill.utils import common
-from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)  # allow ctrl+c
@@ -21,7 +19,6 @@ from mani_skill.envs.sapien_env import BaseEnv
 import tyro
 from dataclasses import dataclass
 from pathlib import Path
-
 
 @dataclass
 class Args:
@@ -72,7 +69,7 @@ class Args:
     # openvla specific
     num_train_carrots: int = 16
     unnorm_key: str = "bridge_orig"
-
+    is_image_encode: bool = False
 
 def get_robot_control_mode(robot: str):
     if "google_robot_static" in robot:
@@ -82,6 +79,46 @@ def get_robot_control_mode(robot: str):
     else:
         raise NotImplementedError(f"Robot {robot} not supported")
 
+def rank_reward_files_by_filename(folder_path: str, file_suffix: str = ".npy") -> None:
+    """
+    Sort all reward_xx named .npy files in the specified folder by reward and add the `_rank_XX` suffix, 
+    overwriting any existing rank markings.
+    
+    Parameters:
+        folder_path (str): The path of the folder to be processed.
+        file_suffix (str): The file suffix to match, default is ".npy".
+    """
+    folder = Path(folder_path)
+    if not folder.exists():
+        raise FileNotFoundError(f"path not exist: {folder_path}")
+
+    reward_pattern = re.compile(r"-reward_(\d+\.?\d*)")
+    rank_pattern = re.compile(r"-rank_\d+")
+    reward_file_pairs = []
+
+    # get file with "reward"
+    for file in os.listdir(folder):
+        if file.endswith(file_suffix): # not match 
+            match = reward_pattern.search(file)
+            if match:
+                reward = float(match.group(1))
+                new_clean_filename = rank_pattern.sub("", file) # create a new name without rank or not change
+                reward_file_pairs.append((reward, new_clean_filename))
+
+    reward_file_pairs = list({f: r for r, f in reward_file_pairs}.items()) # return [(filename, reward), ...]
+    reward_file_pairs.sort(key=lambda x: x[1])  # reward <-> rank
+
+    for idx, (filename, reward) in enumerate(reward_file_pairs, start=0):
+        old_path = folder / filename
+        stem, ext = os.path.splitext(filename)
+        new_filename = f"{stem}_rank_{idx}{ext}"
+        new_path = folder / new_filename
+
+        if old_path.exists():
+            old_path.rename(new_path)
+            print(f"[✓] Renamed: {filename} → {new_filename}")
+        else:
+            print(f"[!] Warning: File not found → {old_path}")
 
 def main():
     args = tyro.cli(Args)
@@ -132,6 +169,7 @@ def main():
             "instruction": "",
             "action": [],  # a_t: [0, T-1]
             "info": [],  # info after executing a_t: [1, T]
+            "is_image_encode": [],
         } for idx in range(args.num_envs)]
 
         # env and policy reset
@@ -186,6 +224,7 @@ def main():
                 datas[i]["image"].append(log_image)
                 datas[i]["action"].append(log_action)
                 datas[i]["info"].append(log_info)
+                datas[i]["is_image_encode"].append(args.is_image_encode)
 
             # add count
             obs_image = obs_image_new
@@ -213,13 +252,26 @@ def main():
             path_name = folder / file_name
 
             res = datas[i].copy()
-            res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
+            if res["is_image_encode"]:
+                encoded_images = []
+                for frame in res["image"]:
+                    success, encoded = cv2.imencode('.jpeg', frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    if not success:
+                        raise ValueError("Image encoding failed")
+                    img_bytes = np.frombuffer(encoded.tobytes(), dtype=np.uint8)
+                    encoded_images.append(img_bytes)
+                res["image"] = encoded_images
+            else:
+                res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
             np.save(path_name, res)
 
             # save video
             if args.save_video:
                 images = datas[i]["image"]
                 images_to_video(images, str(folder), "video_"+file_name, fps=10, verbose=True)
+
+        rank_reward_files_by_filename(folder_path=folder, file_suffix=".npy")
+        rank_reward_files_by_filename(folder_path=folder, file_suffix=".mp4")
 
         # metrics log and print
         for k, v in info.items():
