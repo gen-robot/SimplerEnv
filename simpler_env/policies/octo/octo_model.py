@@ -6,14 +6,10 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 from octo.model.octo_model import OctoModel
-import tensorflow as tf
-from transformers import AutoTokenizer
-from transforms3d.euler import euler2axangle
 from functools import partial
-from simpler_env.utils.action.action_ensemble import ActionEnsembler
+from simpler_env.policies.octo.action_ensemble import ActionEnsembler
 from mani_skill.utils.geometry import rotation_conversions
 from mani_skill.utils import common
-import torch
 from torch.utils import dlpack as torch_dlpack
 
 from jax import dlpack as jax_dlpack
@@ -53,6 +49,11 @@ class OctoInference:
             action_ensemble = True
             action_ensemble_temp = 0.0
             self.sticky_gripper_num_repeat = 15
+        elif policy_setup == "panda":
+            dataset_id = "bridge_dataset" if dataset_id is None else dataset_id
+            action_ensemble = True
+            action_ensemble_temp = 0.0
+            self.sticky_gripper_num_repeat = 1
         else:
             raise NotImplementedError(f"Policy setup {policy_setup} not supported for octo models.")
         self.policy_setup = policy_setup
@@ -110,11 +111,6 @@ class OctoInference:
 
     def _add_image_to_history(self, image: np.ndarray) -> None:
         self.image_history.append(image)
-        # Alternative implementation below; but looks like for real eval, filling the entire buffer at the first step is not necessary
-        # if self.num_image_history == 0:
-        #     self.image_history.extend([image] * self.horizon)
-        # else:
-        #     self.image_history.append(image)
         self.num_image_history = min(self.num_image_history + 1, self.horizon)
 
     def _obtain_image_history_and_mask(self) -> tuple[np.ndarray, np.ndarray]:
@@ -192,39 +188,11 @@ class OctoInference:
         }
         raw_action = common.to_tensor(raw_action)
         
-        # TODO (stao): check if we need torch float 64s.
-        # process raw_action to obtain the action to be sent to the maniskill environment
         action = {}
         action["world_vector"] = raw_action["world_vector"] * self.action_scale
-        # action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
-        # roll, pitch, yaw = action_rotation_delta
-        # action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
-        # action_rotation_axangle = action_rotation_ax * action_rotation_angle
-        # action["rot_axangle"] = action_rotation_axangle * self.action_scale
-        # TODO: is there a better conversion from euler angles to axis angle?
         action["rot_axangle"] = rotation_conversions.matrix_to_axis_angle(rotation_conversions.euler_angles_to_matrix(raw_action["rotation_delta"], "XYZ"))
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
-
-            # This is one of the ways to implement gripper actions; we use an alternative implementation below for consistency with real
-            # gripper_close_commanded = (current_gripper_action < 0.5)
-            # relative_gripper_action = 1 if gripper_close_commanded else -1 # google robot 1 = close; -1 = open
-
-            # # if action represents a change in gripper state and gripper is not already sticky, trigger sticky gripper
-            # if gripper_close_commanded != self.gripper_is_closed and not self.sticky_action_is_on:
-            #     self.sticky_action_is_on = True
-            #     self.sticky_gripper_action = relative_gripper_action
-
-            # if self.sticky_action_is_on:
-            #     self.gripper_action_repeat += 1
-            #     relative_gripper_action = self.sticky_gripper_action
-
-            # if self.gripper_action_repeat == self.sticky_gripper_num_repeat:
-            #     self.gripper_is_closed = (self.sticky_gripper_action > 0)
-            #     self.sticky_action_is_on = False
-            #     self.gripper_action_repeat = 0
-
-            # action['gripper'] = np.array([relative_gripper_action])
 
             # alternative implementation
             if self.previous_gripper_action is None:
@@ -254,7 +222,10 @@ class OctoInference:
             action["gripper"] = (
                 2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
             )  # binarize gripper action to 1 (open) and -1 (close)
-            # self.gripper_is_closed = (action['gripper'] < 0.0)
+        elif self.policy_setup == "panda":
+            action["gripper"] = (
+                2.0 * (raw_action["open_gripper"] > 0.5) - 1.0
+            )  # binarize gripper action to 1 (open) and -1 (close)
 
         action["terminate_episode"] = np.array([0.0])
 

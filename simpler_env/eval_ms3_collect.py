@@ -1,14 +1,10 @@
 from collections import defaultdict
 import json
-import os
 import signal
 import time
 import numpy as np
-from typing import Annotated, Optional
 
 import torch
-import tree
-from mani_skill.utils import common
 from mani_skill.utils import visualization
 from mani_skill.utils.visualization.misc import images_to_video
 
@@ -27,71 +23,35 @@ from pathlib import Path
 class Args:
     """
     This is a script to evaluate policies on real2sim environments. Example command to run:
-
-    XLA_PYTHON_CLIENT_PREALLOCATE=false python real2sim_eval_maniskill3.py \
-        --model="octo-small" -e "PutEggplantInBasketScene-v1" -s 0 --num-episodes 192 --num-envs 64
     """
 
-    env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PutCarrotOnPlateInScene-v1"
-    """The environment ID of the task you want to simulate. Can be one of
-    PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1"""
-    # for Widowx in bridgev2: PutCarrotOnPlateInScene-v1, PutSpoonOnTableClothInScene-v1, StackGreenCubeOnYellowCubeBakedTexInScene-v1, PutEggplantInBasketScene-v1 and
-    # for panda in bridgev2: PandaPutCarrotOnPlateInScene-v1, PandaPutSpoonOnTableClothInScene-v1, PandaStackGreenCubeOnYellowCubeBakedTexInScene-v1, PandaPutEggplantInBasketScene-v1"""
-
-    shader: str = "default"  # default, rt
+    env_id: str = "PutCarrotOnPlateInScene-v1"
+    """The environment ID to run"""
 
     num_envs: int = 1
-    """Number of environments to run. With more than 1 environment the environment will use the GPU backend 
-    which runs faster enabling faster large-scale evaluations. Note that the overall behavior of the simulation
-    will be slightly different between CPU and GPU backends."""
-
+    """Number of environments to run in parallel"""
+    
     num_episodes: int = 100
     """Number of episodes to run and record evaluation metrics over"""
 
     max_episode_len: int = 80
     """Max episode length"""
 
-    record_dir: str = "videos"
+    record_dir: str = "octo_collect"
     """The directory to save videos and results"""
 
-    model: Optional[str] = None
-    """The model to evaluate on the given environment. Can be one of octo-base, octo-small, rt-1x. If not given, random actions are sampled."""
-
-    ckpt_path: str = ""
-    """Checkpoint path for models. Only used for RT models"""
-
-    seed: Annotated[int, tyro.conf.arg(aliases=["-s"])] = 0
+    seed: int = 0
     """Seed the model and environment. Default seed is 0"""
-
-    reset_by_episode_id: bool = True
-    """Whether to reset by fixed episode ids instead of random sampling initial states."""
 
     info_on_video: bool = False
     """Whether to write info text onto the video"""
 
-    save_video: bool = False
+    save_video: bool = True
     """Whether to save videos"""
 
-    save_data: bool = False
+    save_data: bool = True
     """Whether to save collect data"""
 
-    debug: bool = False
-
-    # openvla specific
-    openvla_unnorm_key: Optional[str] = None
-
-    policy_setup: str = "widowx_bridge"
-
-
-def get_robot_control_mode(robot: str):
-    if "google_robot_static" in robot:
-        return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
-    elif "widowx" in robot:
-        return "arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos"
-    elif "panda" in robot:
-        return "pd_ee_target_delta_pose"
-    else:
-        raise NotImplementedError(f"Robot {robot} not supported")
 
 
 def main():
@@ -99,66 +59,35 @@ def main():
     if args.seed is not None:
         np.random.seed(args.seed)
 
-    # Setup up the policy inference model
-    print(f"model is {args.model}")
-    policy_setup = args.policy_setup
-
     env: BaseEnv = gym.make(
         args.env_id,
         num_envs=args.num_envs,
         obs_mode="rgb+segmentation",
-        control_mode=get_robot_control_mode(policy_setup),
+        control_mode="arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos",
         sim_backend="gpu",
         sim_config={
             "sim_freq": 500,
             "control_freq": 5,
         },
         max_episode_steps=args.max_episode_len,
-        sensor_configs={"shader_pack": args.shader},
+        sensor_configs={"shader_pack": "default"},
     )
     sim_backend = 'gpu' if env.device.type == 'cuda' else 'cpu'
 
-    if args.model == "octo-base" or args.model == "octo-small":
-        from simpler_env.policies.octo.octo_model import OctoInference
-        model = OctoInference(model_type=args.model, policy_setup=policy_setup, init_rng=args.seed, action_scale=1)
-    elif args.model == "rt-1x":
-        from simpler_env.policies.rt1.rt1_model import RT1Inference
-        model = RT1Inference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1)
-    elif args.model == "openvla":
-        from simpler_env.policies.openvla.openvla_infer import OpenVLAInference
-        model = OpenVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.,
-                                 unnorm_key=args.openvla_unnorm_key)
-    elif args.model == "cogact":
-        from simpler_env.policies.sim_cogact import CogACTInference
-        model = CogACTInference(
-            saved_model_path=args.ckpt_path,  # e.g., CogACT/CogACT-Base
-            policy_setup=policy_setup,
-            action_scale=1.0,
-            action_model_type='DiT-L',
-            cfg_scale=1.5  # cfg from 1.5 to 7 also performs well
-        )
-    elif args.model == "spatialvla":
-        from simpler_env.policies.spatialvla.spatialvla_model import SpatialVLAInference
-        model = SpatialVLAInference(saved_model_path=args.ckpt_path, policy_setup=policy_setup, action_scale=1.0, )
-    elif args.model == "rdt":
-        from simpler_env.policies.rdt.rdt_model import RDTInference
-        model = RDTInference(ctrl_freq = 25, action_scale=1, robot_name=policy_setup, dtype=torch.bfloat16, action_horizon=1,
-            env = env, enable_eef_obs=True, enable_qvel_obs=False, pretrained_checkpoint=args.ckpt_path, # RDT1B_FT_PATH， RDT1B_PATH
-        )
-    else:
-        raise NotImplementedError
+    from simpler_env.policies.octo.octo_model import OctoInference
+    model = OctoInference(model_type="octo-small", policy_setup="widowx_bridge", init_rng=args.seed, action_scale=1)
 
     eval_metrics = defaultdict(list)
     eps_count = 0
+    valid_count = 0
 
-    print(f"Running Real2Sim Evaluation of model {args.model} on environment {args.env_id}")
+    print(f"Running Real2Sim Evaluation of model Octo-Small on environment {args.env_id}")
     print(f"Using {args.num_envs} environments on the {sim_backend} simulation backend")
 
     timers = {"env.step+inference": 0, "env.step": 0, "inference": 0, "total": 0}
     total_start_time = time.time()
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
 
-    while eps_count < args.num_episodes:
+    while valid_count < args.num_episodes:
         seed = args.seed + eps_count
 
         # data dump
@@ -189,13 +118,8 @@ def main():
         while not (predicted_terminated or truncated):
         # inference
             start_time = time.time()
-            # if args.model == 'rdt':
-            #     raw_action, action = model.step(obs, instruction)
-            #     action = torch.cat([torch.as_tensor(action["world_vector"]), torch.as_tensor(action["rot_axangle"]),
-            #                         torch.as_tensor(action["gripper"])], dim=0).to(dtype=torch.float32, device=env.device)
             raw_action, action = model.step(obs_image, instruction)
             action = torch.cat([action["world_vector"], action["rot_axangle"], action["gripper"]], dim=1)
-            # action = env.action_space.sample() # random
 
             timers["inference"] += time.time() - start_time
 
@@ -233,7 +157,7 @@ def main():
 
         # save video
         if args.save_video:
-            exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
+            exp_dir = Path(args.record_dir) / args.env_id / f"{args.num_episodes}" / "videos"
             exp_dir.mkdir(parents=True, exist_ok=True)
 
             for i in range(args.num_envs):
@@ -247,19 +171,19 @@ def main():
 
                 success = np.sum([d["success"] for d in infos]) >= 6
                 images_to_video(images, str(exp_dir), f"video_{eps_count + i}_success={success}",
-                                fps=10, verbose=True)
+                                fps=10, verbose=False)
 
         # save data
-        if args.save_data:
-            exp_dir = Path(args.record_dir) / f"collect/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
-            exp_dir.mkdir(parents=True, exist_ok=True)
+        exp_dir = Path(args.record_dir) / args.env_id / f"{args.num_episodes}" / "data"
+        exp_dir.mkdir(parents=True, exist_ok=True)
 
-            for i in range(args.num_envs):
-                if np.sum([d["success"] for d in datas[i]["info"]]) < 6:
-                    continue
-                res = datas[i].copy()
-                res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
-                np.save(exp_dir / f"data_{eps_count + i:0>4d}.npy", res)
+        for i in range(args.num_envs):
+            if np.sum([d["success"] for d in datas[i]["info"]]) < 6:
+                continue
+            res = datas[i].copy()
+            res["image"] = [Image.fromarray(im).convert("RGB") for im in res["image"]]
+            np.save(exp_dir / f"data_{eps_count + i:0>4d}.npy", res)
+            valid_count += 1
 
 
         # metrics log and print
@@ -270,6 +194,8 @@ def main():
             print(f"{k}: {np.mean(eval_metrics[k])}")
 
         eps_count += args.num_envs
+        
+        print(f"Episode {eps_count} finished. Valid count: {valid_count}/{args.num_episodes}")
 
     # Print timing information
     timers["total"] = time.time() - total_start_time
@@ -284,7 +210,7 @@ def main():
     mean_metrics["total_steos"] = eps_count * args.max_episode_len
     mean_metrics["time/episodes_per_second"] = eps_count / timers["total"]
 
-    exp_dir = Path(args.record_dir) / f"visualize/{Path(args.ckpt_path).name}/{args.env_id}" / timestamp
+    exp_dir = Path(args.record_dir) / args.env_id / f"{args.num_episodes}" / "videos"
     exp_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = exp_dir / f"eval_metrics.json"
     json.dump(mean_metrics, open(metrics_path, "w"), indent=4)
