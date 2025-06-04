@@ -111,7 +111,7 @@ def rank_reward_files_by_filename(folder_path: str, file_suffix: str = ".npy") -
     for idx, (filename, reward) in enumerate(reward_file_pairs, start=0):
         old_path = folder / filename
         stem, ext = os.path.splitext(filename)
-        new_filename = f"{stem}_rank_{idx}{ext}"
+        new_filename = f"{stem}-rank_{idx}{ext}"
         new_path = folder / new_filename
 
         if old_path.exists():
@@ -252,7 +252,7 @@ def main():
             path_name = folder / file_name
 
             res = datas[i].copy()
-            if res["is_image_encode"]:
+            if res["is_image_encode"][i]:
                 encoded_images = []
                 for frame in res["image"]:
                     success, encoded = cv2.imencode('.jpeg', frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
