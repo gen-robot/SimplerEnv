@@ -90,11 +90,17 @@ class SimlerWrapper:
 
         return action
 
-    def reset(self, obj_set: str, same_init: bool = False):
+    def reset(self, obj_set: str, group_init: int = 1):
         options = {}
         options["obj_set"] = obj_set
-        if same_init:
-            options["episode_id"] = torch.randint(1000000000, (1,)).expand(self.num_envs).to(self.env.device)  # [B]
+        options["num_train_carrots"] = self.args.num_train_carrots
+
+        if group_init > 1:
+            assert self.num_envs % group_init == 0
+
+            num_group = self.num_envs // group_init
+            eid = torch.randint(2**63 - 1, (num_group,), dtype=torch.int64).repeat_interleave(group_init) # [B]
+            options["episode_id"] = eid.to(self.env.device)  # [B]
 
         obs, info = self.env.reset(options=options)
         obs_image = obs["sensor_data"]["3rd_view_camera"]["rgb"].to(torch.uint8)

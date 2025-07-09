@@ -8,7 +8,8 @@ class SeparatedReplayBuffer(object):
         self.gamma = all_args.buffer_gamma
         self.gae_lambda = all_args.buffer_lambda
         self.buffer_minibatch = all_args.buffer_minibatch
-        self.alg_grpo_fix = all_args.alg_grpo_fix
+        self.alg_grpo_type = all_args.alg_grpo_type
+        self.group_init_size = all_args.group_init_size
 
         self.obs = np.zeros((self.ep_len + 1, self.num_env, *obs_dim), dtype=np.uint8)
         self.instruction = [""] * self.num_env
@@ -60,14 +61,84 @@ class SeparatedReplayBuffer(object):
         self.advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
 
     def compute_returns_grpo(self):
-        if self.alg_grpo_fix:
+        if self.alg_grpo_type == "v1":
             rewards_valid = self.rewards[self.rewards != 0]
             rewards_norm = self.rewards.copy()
             rewards_norm[rewards_norm != 0] -= rewards_valid.mean()
             rewards_norm[rewards_norm != 0] /= (rewards_valid.std() + 1e-5)
-        else:
+
+        elif self.alg_grpo_type == "v1w":
             rewards_norm = (self.rewards - self.rewards.mean()) / (self.rewards.std() + 1e-5)
 
+        elif self.alg_grpo_type == "v2":
+            # hack: assign reward to the last (PRM)
+            rewards = self.rewards.copy()
+            rewards[:, -1] -= 0.0001
+
+            if self.group_init_size > 1:  # with group init size
+                rewards_norm = []
+
+                for idx in range(0, self.rewards.shape[0], self.group_init_size):
+                    r_group = rewards[idx:idx + self.group_init_size].copy()
+                    r_valid = r_group[r_group != 0]
+                    r_group[r_group != 0] -= r_valid.mean()
+                    r_group[r_group != 0] /= (r_valid.std() + 1e-5)
+
+                    rewards_norm.append(r_group)
+
+                rewards_norm = np.concatenate(rewards_norm, axis=0)
+
+            else:
+                rewards_norm = rewards.copy()
+                rewards_valid = rewards[rewards != 0]
+                rewards_norm[rewards_norm != 0] -= rewards_valid.mean()
+                rewards_norm[rewards_norm != 0] /= (rewards_valid.std() + 1e-5)
+
+        elif self.alg_grpo_type == "v2w":
+            if self.group_init_size > 1:  # with group init size
+                rewards_norm = []
+
+                for idx in range(0, self.rewards.shape[0], self.group_init_size):
+                    r_group = self.rewards[idx:idx + self.group_init_size].copy()
+                    r_group = (r_group - r_group.mean()) / (r_group.std() + 1e-5)
+
+                    rewards_norm.append(r_group)
+
+                rewards_norm = np.concatenate(rewards_norm, axis=0)
+
+            else:
+                rewards_norm = (self.rewards - self.rewards.mean()) / (self.rewards.std() + 1e-5)
+
+        elif self.alg_grpo_type == "v2s":
+            rewards = self.rewards.copy()
+            rewards_sum = rewards.sum(axis=1) # [B]
+            rewards[:] = 0
+            rewards[:, -1] = rewards_sum
+            rewards[:, -1] -= 0.0001
+
+            if self.group_init_size > 1:  # with group init size
+                rewards_norm = []
+
+                for idx in range(0, self.rewards.shape[0], self.group_init_size):
+                    r_group = rewards[idx:idx + self.group_init_size].copy()
+                    r_valid = r_group[r_group != 0]
+                    r_group[r_group != 0] -= r_valid.mean()
+                    r_group[r_group != 0] /= (r_valid.std() + 1e-5)
+
+                    rewards_norm.append(r_group)
+
+                rewards_norm = np.concatenate(rewards_norm, axis=0)
+
+            else:
+                rewards_norm = rewards.copy()
+                rewards_valid = rewards[rewards != 0]
+                rewards_norm[rewards_norm != 0] -= rewards_valid.mean()
+                rewards_norm[rewards_norm != 0] /= (rewards_valid.std() + 1e-5)
+
+        else:
+            raise NotImplementedError
+
+        # calc returns
         returns = 0
         for step in reversed(range(self.rewards.shape[0])):
             returns = rewards_norm[step] + self.masks[step + 1] * returns

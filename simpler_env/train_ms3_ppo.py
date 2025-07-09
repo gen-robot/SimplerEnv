@@ -42,7 +42,8 @@ class Args:
     # env
     num_envs: int = 64
     episode_len: int = 80
-    use_same_init: bool = False
+    num_train_carrots: int = 16
+    group_init_size: int = 1
 
     steps_max: int = 2000000
     steps_vh: int = 0  # episodes
@@ -312,6 +313,7 @@ class Runner:
 
         save_stats = {}
         save_stats["env_name"] = self.args.env_id
+        save_stats["num_train_carrots"] = self.args.num_train_carrots
         save_stats["ep_len"] = self.args.episode_len
         save_stats["epoch"] = epoch
         save_stats["stats"] = {k: v.item() for k, v in env_stats.items()}
@@ -329,7 +331,7 @@ class Runner:
             env_infos = defaultdict(lambda: [])
             ep_time = time.time()
 
-            obs_img, instruction, info = self.env.reset(obj_set="train", same_init=self.args.use_same_init)
+            obs_img, instruction, info = self.env.reset(obj_set="train", group_init=self.args.group_init_size)
             self.buffer.warmup(obs_img.cpu().numpy(), instruction)
 
             for _ in tqdm(range(self.args.episode_len), desc="rollout"):
